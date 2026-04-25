@@ -1,0 +1,128 @@
+id: HL-002
+title: PowerShell Encoded Command Execution
+summary: >
+  Identifies PowerShell processes launched with the -EncodedCommand flag, a common technique
+  used by adversaries and malware droppers to obfuscate script content from command-line
+  logging and signature-based detections.
+hypothesis: |
+  Encoded command execution (`powershell.exe -EncodedCommand <base64>`) is one of the most
+  prevalent obfuscation techniques in the Windows ecosystem. While legitimate software
+  occasionally uses it, the majority of real-world usage in enterprise environments is
+  associated with malicious scripts, post-exploitation frameworks (Cobalt Strike, Metasploit),
+  or living-off-the-land techniques.
+
+  By identifying processes spawning `powershell.exe` with the `-Enc` or `-EncodedCommand`
+  flags, we can surface potentially obfuscated execution chains for analyst review. The parent
+  process context is critical — `powershell.exe` spawned from `Office` applications or
+  `wscript.exe`/`cscript.exe` carries significantly higher risk than those from `cmd.exe`
+  in a development context.
+author: RustedRoberts
+updated: "2026-04-25"
+version: "1.0"
+
+tactics:
+  - Execution
+  - Defense Evasion
+
+techniques:
+  - id: T1059.001
+    name: PowerShell
+  - id: T1027
+    name: Obfuscated Files or Information
+
+platforms:
+  - Windows
+
+methodology: Signature
+maturity: Validated
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+  - product: Windows Security
+    table: SecurityEvent
+    required: false
+
+whatYoullSee: |
+  `powershell.exe` processes where `ProcessCommandLine` contains `-EncodedCommand` or the
+  short form `-enc`. The base64 payload will appear immediately after the flag. High-risk
+  results will show a parent process from the Office suite (`winword.exe`, `excel.exe`,
+  `outlook.exe`), script hosts (`wscript.exe`, `cscript.exe`, `mshta.exe`), or browser
+  processes — these chains strongly suggest a dropper or phishing-delivered payload.
+
+investigationSteps:
+  - "Decode the base64 payload: copy the string after `-EncodedCommand`, decode it from
+    UTF-16LE base64, and review the plaintext script content."
+  - "Examine the parent process: what spawned this PowerShell instance? A parent of
+    `winword.exe` or `outlook.exe` is a strong indicator of a phishing-delivered macro."
+  - "Review the child processes: did the PowerShell session spawn network connections,
+    write files to disk, or create new processes? Check `DeviceNetworkEvents` and
+    `DeviceFileEvents` for the same `InitiatingProcessId`."
+  - "Check for persistence: look for `DeviceRegistryEvents` targeting Run keys, scheduled
+    task creation events, or new services created within the same timeframe."
+  - "Scope the blast radius: were other hosts in the environment running the same command
+    line? A matching hash across multiple devices suggests a scripted campaign."
+
+falsePositives:
+  - Software deployment tools (SCCM, Intune, PDQ) occasionally use encoded commands to
+    pass configuration payloads to PowerShell.
+  - Security products (EDR agents, compliance scanners) may self-invoke PowerShell with
+    encoded arguments for installation or remediation tasks.
+  - Development workflows using `Invoke-Build` or similar tooling with complex argument
+    escaping requirements.
+
+curatorNotes: |
+  The combination of parent process = Office application AND encoded PowerShell is a Promoted-level
+  signal on its own. Consider splitting this hunt into a High-signal variant scoped to risky
+  parent processes and retaining the current version as a broader Medium-signal sweep.
+
+  Add a `DeviceNetworkEvents` join (inner join on `InitiatingProcessId`) to surface cases where
+  the encoded script immediately reaches out to a C2. That enrichment improves analyst efficiency
+  without adding false positives.
+
+references:
+  - label: "MITRE ATT&CK: PowerShell (T1059.001)"
+    url: https://attack.mitre.org/techniques/T1059/001/
+  - label: "MITRE ATT&CK: Obfuscated Files or Information (T1027)"
+    url: https://attack.mitre.org/techniques/T1027/
+  - label: "Daniel Bohannon: Revoke-Obfuscation"
+    url: https://github.com/danielbohannon/Revoke-Obfuscation
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      DeviceProcessEvents
+      | where Timestamp > ago(1d)
+      | where FileName =~ "powershell.exe"
+        or FileName =~ "pwsh.exe"
+      | where ProcessCommandLine has_any ("-EncodedCommand", "-enc ", "-ec ")
+      // Extract the base64 payload for display
+      | extend EncodedPayload = extract(
+          @"(?i)(?:-EncodedCommand|-enc|-ec)\s+([A-Za-z0-9+/=]{20,})",
+          1, ProcessCommandLine
+        )
+      // Classify parent process risk
+      | extend ParentRisk = case(
+          InitiatingProcessFileName in~ ("winword.exe","excel.exe","outlook.exe","powerpnt.exe"),
+            "High — Office parent",
+          InitiatingProcessFileName in~ ("wscript.exe","cscript.exe","mshta.exe"),
+            "High — Script host parent",
+          InitiatingProcessFileName in~ ("explorer.exe"),
+            "Medium — Interactive",
+          "Low"
+        )
+      | project
+          Timestamp,
+          DeviceName,
+          AccountName,
+          ParentProcess = InitiatingProcessFileName,
+          ParentRisk,
+          CommandLine = ProcessCommandLine,
+          EncodedPayload
+      | order by ParentRisk asc, Timestamp desc
+
+relatedHunts:
+  - HL-001

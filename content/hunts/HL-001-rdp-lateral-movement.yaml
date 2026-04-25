@@ -1,0 +1,113 @@
+id: HL-001
+title: RDP Lateral Movement from Non-Server Workstations
+summary: >
+  Detects workstations initiating RDP connections to other workstations, which is atypical
+  in most environments and may indicate lateral movement by an adversary who has compromised
+  an endpoint and is pivoting across the network.
+hypothesis: |
+  If an adversary has obtained credentials on a workstation, they may use the built-in RDP
+  client to move laterally to other workstations or low-privilege servers. Most organisations
+  restrict workstation-to-workstation RDP via policy, making such connections a high-fidelity
+  signal when observed outside known IT jump-host subnets.
+
+  We expect to see `mstsc.exe` or equivalent initiating TCP/3389 connections from a
+  workstation-class host to another internal IP that resolves to a workstation hostname.
+author: RustedRoberts
+updated: "2026-04-25"
+version: "1.0"
+
+tactics:
+  - Lateral Movement
+
+techniques:
+  - id: T1021.001
+    name: Remote Desktop Protocol
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Validated
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+  - product: Windows Security
+    table: SecurityEvent
+    required: false
+
+whatYoullSee: |
+  Source workstations (non-server, non-DC hostnames) establishing successful TCP/3389 connections
+  to other workstations. The initiating process will typically be `mstsc.exe`. Look for accounts
+  that do not ordinarily use RDP — standard user accounts performing RDP are unusual in most
+  environments. The query aggregates by source host and account to surface repeated attempts.
+
+investigationSteps:
+  - "Confirm the source device class: is `DeviceName` a workstation or an authorised jump host?"
+  - "Identify the account: is it a standard user, admin, or service account? Review recent
+    authentication events for this account in Azure AD sign-in logs."
+  - "Check the target IP: does it resolve to a workstation hostname? Is the target device
+    also showing lateral movement activity?"
+  - "Expand the timeline on the source host by ±2 hours. Look for signs of prior compromise:
+    `cmd.exe`/`powershell.exe` spawned from `outlook.exe`, unusual scheduled task creation,
+    or defence-evasion activity."
+  - "Enumerate all RDP connections from the source host in the preceding 72 hours using
+    `DeviceNetworkEvents` filtered on `RemotePort == 3389`."
+  - "Correlate with Azure AD interactive sign-in logs to determine whether the credential
+    used was MFA-satisfied or originated from an expected IP range."
+
+falsePositives:
+  - Managed desktop teams with legitimate remote-support tooling that routes sessions over RDP.
+  - Developers remoting into peer workstations for pair programming or access to a specific build environment.
+  - IT helpdesk staff performing break-fix sessions without a centralised jump host.
+
+curatorNotes: |
+  Tune the exclusion list to cover your jump-host IP ranges and IT support account name prefixes
+  (e.g., `ADM-`, `SVC-`). In environments using Windows 365 or Azure Virtual Desktop, this rule
+  produces significant noise and will require a suppression overlay targeting those subnet ranges.
+
+  The `SecurityEvent` table (Event ID 4624, Logon Type 10) can enrich results with credential
+  details where MDE telemetry is unavailable on legacy endpoints.
+
+references:
+  - label: "MITRE ATT&CK: Remote Desktop Protocol (T1021.001)"
+    url: https://attack.mitre.org/techniques/T1021/001/
+  - label: "Microsoft: Detect lateral movement with Defender for Endpoint"
+    url: https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/investigate-incidents
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      DeviceNetworkEvents
+      | where Timestamp > ago(1d)
+      | where RemotePort == 3389
+      | where ActionType == "ConnectionSuccess"
+      // Exclude known server and DC naming prefixes — tune for your environment
+      | where DeviceName !startswith "SRV-"
+            and DeviceName !startswith "DC-"
+            and DeviceName !startswith "JUMP-"
+      | where RemoteIPType == "Private"
+      | extend TargetHostname = tostring(AdditionalFields.RemoteHostname)
+      // Only interested in workstation-to-workstation: target must not be a server
+      | where TargetHostname !startswith "SRV-"
+            and TargetHostname !startswith "DC-"
+      | summarize
+          ConnectionCount = count(),
+          TargetHosts = make_set(RemoteIP, 20),
+          TargetHostnames = make_set(TargetHostname, 20)
+          by DeviceName, InitiatingProcessAccountName, bin(Timestamp, 1h)
+      | project
+          Timestamp,
+          SourceHost = DeviceName,
+          Account = InitiatingProcessAccountName,
+          ConnectionCount,
+          TargetHosts,
+          TargetHostnames
+      | order by ConnectionCount desc
+
+relatedHunts:
+  - HL-002
+  - HL-003
