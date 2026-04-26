@@ -1,0 +1,193 @@
+id: HL-XXX
+title: Suspicious Device Registration Following Microsoft Authentication Broker Sign-In
+summary: >
+  Detects device registration events that occur within a short window after a successful
+  sign-in to the Microsoft Authentication Broker — a behavioural pattern associated with
+  rogue device join attacks following AitM phishing, where an attacker uses a stolen
+  session to register an attacker-controlled device and obtain a Primary Refresh Token
+  for persistent access.
+hypothesis: |
+  The Microsoft Authentication Broker (app ID `29d9ed98-a469-4536-ade2-f981bc1d605e`)
+  brokers token requests on behalf of native applications and underpins the device
+  registration flow that issues Primary Refresh Tokens (PRTs). A PRT grants long-lived
+  SSO across Microsoft 365 resources from the registered device.
+
+  Adversaries who have obtained a valid session through AitM phishing kits such as
+  Evilginx or Tycoon will frequently follow the credential or cookie theft by registering
+  their own device into the victim tenant. This grants persistence that survives password
+  resets and avoids re-prompting for MFA on subsequent access. The pattern of a broker
+  sign-in followed within minutes by an `Add device` or `Add registered owner to device`
+  audit event, particularly from an unfamiliar IP or unusual device OS, is a high-fidelity
+  indicator of this technique.
+
+author: RustedRoberts
+updated: "2026-04-26"
+version: "1.0"
+
+tactics:
+  - Persistence
+  - Credential Access
+
+techniques:
+  - id: T1098.005
+    name: "Account Manipulation: Device Registration"
+  - id: T1556.006
+    name: "Modify Authentication Process: Multi-Factor Authentication"
+
+platforms:
+  - Azure AD / Entra ID
+
+methodology: Behavioural
+maturity: Experimental
+signal: Medium
+
+dataSources:
+  - product: Microsoft Entra ID
+    table: SigninLogs
+    required: true
+  - product: Microsoft Entra ID
+    table: AADNonInteractiveUserSignInLogs
+    required: true
+  - product: Microsoft Entra ID
+    table: AuditLogs
+    required: true
+  - product: Microsoft Entra ID
+    table: IdentityInfo
+    required: false
+
+whatYoullSee: |
+  A successful sign-in event in `SigninLogs` or `AADNonInteractiveUserSignInLogs` where
+  `AppId` is `29d9ed98-a469-4536-ade2-f981bc1d605e` and `ResultType` is `0`, followed
+  within ten minutes by an `AuditLogs` event with `OperationName` of `Add device`,
+  `Add registered owner to device`, or `Add registered users to device` for the same
+  user principal.
+
+  In genuine attacker activity, the device OS and user agent in the broker sign-in will
+  often differ from the user's normal estate — common indicators include unexpected
+  Linux user agents, mobile OS strings on accounts belonging to desktop-only users, or
+  generic browser strings during what should be a native client flow.
+
+investigationSteps:
+  - "Identify the source of the broker sign-in: review `IPAddress`, `LocationDetails`,
+    and `UserAgent`. Compare against the user's sign-in history over the preceding 30 days.
+    A first-seen IP or country is a significant indicator."
+  - "Check for preceding AitM activity: search for sign-ins from the same user in the
+    minutes before the broker event, particularly any sign-in showing a known phishing
+    proxy IP, unusual ASN, or a session that completed MFA from a suspicious location."
+  - "Examine the registered device: query `AuditLogs` for the device object ID returned
+    by the hunt and review the `modifiedProperties` field for the device display name,
+    operating system, and trust type. Cross-reference with Intune to confirm whether the
+    device is managed."
+  - "Look for follow-on activity from the new device: search subsequent sign-ins where
+    `DeviceDetail.deviceId` matches the newly registered device. Access to mailboxes,
+    SharePoint, or sensitive applications shortly after registration is a strong indicator
+    of attacker use."
+  - "Check for additional persistence: review `AuditLogs` for MFA method registration
+    events (`Update user`, `Add registered owner`) for the same account in the same
+    window, as attackers frequently chain device registration with adding their own
+    Authenticator instance."
+  - "If confirmed malicious, revoke the user's refresh tokens, disable or delete the
+    rogue device object, force a password reset, and review all sessions issued to the
+    device for downstream impact."
+
+falsePositives:
+  - Legitimate user onboarding to a new corporate device, particularly during Autopilot
+    or Intune enrolment flows, which produce the same broker-then-register pattern at
+    scale.
+  - Users setting up Microsoft Authenticator on a new mobile device, which triggers
+    broker sign-ins followed by device registration.
+  - Hybrid Join flows from on-premises domain-joined devices completing their initial
+    registration to Entra ID.
+  - Users replacing lost or upgraded devices, where the registration source IP is the
+    user's home or remote working location rather than a corporate egress.
+
+curatorNotes: |
+  This hunt is Experimental — the underlying behaviour is genuinely common in healthy
+  tenants, and meaningful tuning is required before this can be promoted to a scheduled
+  analytic rule. The recommended tuning approach is to suppress events from known
+  corporate egress IPs, compliant or hybrid-joined source devices, and expected
+  enrolment sources such as Autopilot ranges.
+
+  Higher-fidelity variants of this hunt can be built by joining against the Device
+  Registration Service app ID (`01cb2876-7ebd-4aa4-9cc9-d28bd4d359a9`), which sometimes
+  produces a cleaner signal than the broker alone, and by stacking on the absence of
+  prior sign-ins from the same IP for the user in the preceding 30 days.
+
+  This pattern frequently precedes business email compromise and data exfiltration, so
+  the cost of investigation is justified even at the current false-positive rate.
+
+references:
+  - label: "MITRE ATT&CK: Account Manipulation — Device Registration (T1098.005)"
+    url: https://attack.mitre.org/techniques/T1098/005/
+  - label: "Microsoft: Token theft playbook"
+    url: https://learn.microsoft.com/en-us/security/operations/token-theft-playbook
+  - label: "Microsoft: How it works — Azure AD device registration"
+    url: https://learn.microsoft.com/en-us/entra/identity/devices/device-registration-how-it-works
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      let lookback = 7d;                                                                                              // set lookback period to 7 days
+      let timeWindow = 10m;                                                                                           // maximum gap between broker sign-in and device registration to be considered correlated
+      let brokerAppId = "29d9ed98-a469-4536-ade2-f981bc1d605e";                                                       // app ID for the Microsoft Authentication Broker first-party service
+      let BrokerSignIns =                                                                                             // build a set of successful broker sign-ins to correlate against
+          union SigninLogs, AADNonInteractiveUserSignInLogs                                                           // combine interactive and non-interactive sign-ins, as broker activity appears in both
+          | where TimeGenerated > ago(lookback)                                                                       // restrict to the lookback window
+          | where AppId == brokerAppId                                                                                // keep only sign-ins targeting the broker
+          | where ResultType == 0                                                                                     // keep only successful sign-ins (failed attempts cannot register a device)
+          | extend LocationDetails = geo_info_from_ip_address(IPAddress)                                              // resolve the source IP to geographic information for triage context
+          | extend DeviceDetail = coalesce                                                                            // collapse the dynamic and string variants of DeviceDetail produced by the union
+              (
+                  column_ifexists("DeviceDetail_dynamic", dynamic(null)),                                             // prefer the dynamic version if present (from SigninLogs)
+                  todynamic(column_ifexists("DeviceDetail_string", ""))                                               // otherwise parse the string version (from AADNonInteractiveUserSignInLogs) into dynamic
+              )
+          | project                                                                                                   // keep only the fields needed downstream and rename for clarity post-join
+              SignInTime = TimeGenerated,
+              UserPrincipalName,
+              UserId,
+              SignInIPAddress = IPAddress,
+              SignInLocation = strcat(tostring(LocationDetails.city), ", ", tostring(LocationDetails.country)),       // build a human-readable city, country string
+              SignInDeviceOS = tostring(DeviceDetail.operatingSystem),
+              SignInDeviceId = tostring(DeviceDetail.deviceId),
+              SignInCorrelationId = CorrelationId,
+              SignInUserAgent = UserAgent;
+      let DeviceRegistrations =                                                                                       // build a set of device registration audit events to correlate against
+          AuditLogs
+          | where TimeGenerated > ago(lookback)                                                                       // restrict to the same lookback window as the sign-ins
+          | where LoggedByService =~ "Core Directory"                                                                 // device registration events are written by Core Directory
+          | where Category =~ "Device"                                                                                // narrow to the Device category to reduce noise
+          | where OperationName in ("Add device", "Add registered owner to device", "Add registered users to device") // the three operations that indicate a new device or owner being added
+          | extend TargetUPN = tostring(TargetResources[0].userPrincipalName)                                         // pull the target user from the audit record
+          | extend ActorUPN = tolower(tostring(InitiatedBy.user.userPrincipalName))                                   // pull the initiating user, lowercased for reliable joining
+          | extend RegisteredUser = coalesce(ActorUPN, tolower(TargetUPN))                                            // prefer the actor where present, otherwise fall back to the target
+          | extend DeviceDisplayName = tostring(TargetResources[0].displayName)                                       // surface the device display name for analyst review
+          | extend DeviceObjectId = tostring(TargetResources[0].id)                                                   // surface the device object ID for pivoting in Entra
+          | extend ModifiedProps = TargetResources[0].modifiedProperties                                              // retain modified properties for deeper inspection (OS, trust type, etc.)
+          | project
+              RegistrationTime = TimeGenerated,
+              OperationName,
+              RegisteredUser,
+              DeviceDisplayName,
+              DeviceObjectId,
+              ModifiedProps,
+              AuditCorrelationId = CorrelationId;
+      BrokerSignIns
+      | join kind=inner DeviceRegistrations on $left.UserPrincipalName == $right.RegisteredUser                       // inner join on user so only sign-ins with a matching registration are returned
+      | where RegistrationTime between (SignInTime .. (SignInTime + timeWindow))                                      // enforce that the registration occurred within the time window after the sign-in
+      | project                                                                                                       // final projection of investigation-relevant fields
+          SignInTime,
+          RegistrationTime,
+          UserPrincipalName,
+          SignInIPAddress,
+          SignInLocation,
+          SignInDeviceOS,
+          SignInUserAgent,
+          OperationName,
+          DeviceDisplayName,
+          DeviceObjectId,
+          SignInCorrelationId,
+          AuditCorrelationId
+      | sort by SignInTime desc                                                                                       // newest sign-ins first for triage
+
+relatedHunts: []
