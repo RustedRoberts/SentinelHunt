@@ -1,0 +1,166 @@
+id: HL-005
+title: SMB Lateral Movement via High-Volume Port 445 Connections
+summary: >
+  Detects devices establishing successful SMB (port 445) connections to an unusually
+  high number of unique remote IPs within a short time window — a behavioural pattern
+  consistent with lateral movement, network share enumeration, and ransomware
+  pre-deployment reconnaissance.
+hypothesis: |
+  Adversaries operating inside a network frequently use SMB to move laterally, enumerate
+  shares, deploy payloads, and stage data prior to exfiltration or encryption. Tools such
+  as PsExec, Impacket's wmiexec and smbexec, and ransomware deployment scripts all
+  generate distinctive bursts of SMB traffic from a single source device to many
+  destinations in a short period.
+
+  Legitimate workstation behaviour rarely involves a single endpoint connecting to large
+  numbers of distinct IPs over port 445 within a one-hour window. Servers performing
+  backup, file replication, or management functions will produce some volume of SMB
+  traffic, but the pattern from these is typically stable, predictable, and to a known
+  set of destinations. A burst of SMB connections from a workstation, particularly one
+  driven by an unusual process or under a service account, is a strong indicator of
+  lateral movement in progress.
+
+author: RustedRoberts
+updated: "2026-04-26"
+version: "1.0"
+
+tactics:
+  - Lateral Movement
+  - Discovery
+
+techniques:
+  - id: T1021.002
+    name: "Remote Services: SMB/Windows Admin Shares"
+  - id: T1135
+    name: "Network Share Discovery"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Experimental
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: false
+
+whatYoullSee: |
+  Rows in `DeviceNetworkEvents` with `RemotePort == 445` and `ActionType ==
+  "ConnectionSuccess"`, aggregated into one-hour bins per source device and source IP.
+  The hunt surfaces any source that contacts at least the configured threshold of
+  unique remote IPs within an hour, along with the initiating processes and accounts
+  responsible.
+
+  In genuine lateral movement, the `InitiatingProcesses` field will often include
+  `cmd.exe`, `powershell.exe`, `wmic.exe`, `psexec.exe`, or unusual binaries running
+  from non-standard paths. The `AccountsUsed` field will frequently show a privileged
+  account or a service account that should not be initiating outbound SMB at scale.
+
+investigationSteps:
+  - "Triage the source device: confirm whether the device is a workstation, server, or
+    management host. Servers performing legitimate file replication or backup will
+    naturally generate this pattern and can be allowlisted; workstations almost never
+    should."
+  - "Review the initiating processes: trusted Windows components such as `System` (PID 4)
+    making SMB connections to a managed file server fleet are normal. Connections
+    initiated by `cmd.exe`, `powershell.exe`, `wmic.exe`, or unsigned binaries warrant
+    immediate investigation."
+  - "Examine the accounts used: a single user account or service account initiating SMB
+    to many distinct hosts in a short window is a strong indicator. Cross-reference the
+    account against expected behaviour — service accounts especially should have
+    well-defined access patterns."
+  - "Pivot on the destination IPs: resolve the `UniqueIPsAccessed` list against your
+    asset inventory. Lateral movement targeting domain controllers, file servers, or
+    backup infrastructure is significantly more concerning than scanning of workstation
+    subnets."
+  - "Check for follow-on activity: search `DeviceProcessEvents` on the destination hosts
+    for newly created services, scheduled tasks, or remote process executions originating
+    from the source device's IP within the same window. This confirms whether the SMB
+    connections resulted in code execution."
+  - "If lateral movement is confirmed, isolate the source device, disable the
+    initiating account, capture the process tree for forensic analysis, and begin
+    triage of the destination hosts for compromise."
+
+falsePositives:
+  - Backup servers, particularly Veeam, Commvault, and similar products, which generate
+    high volumes of legitimate SMB traffic to protected hosts.
+  - Domain controllers performing replication and group policy distribution.
+  - File server clusters and DFS namespace servers replicating between nodes.
+  - Endpoint management and software deployment tools such as SCCM/MECM distribution
+    points pushing content to clients.
+  - Vulnerability scanners and asset discovery tools running authenticated scans across
+    the estate.
+
+curatorNotes: |
+  This hunt is Experimental — the threshold of 5 unique IPs per hour is a starting point
+  and will need tuning against the customer environment. In a flat network with broad
+  workstation-to-workstation SMB allowed, the threshold may need to be raised
+  significantly; in a segmented environment with strict micro-segmentation, the threshold
+  can be lowered for higher fidelity.
+
+  The optional `SuspiciousDevices` scoping is useful when this hunt is being run in
+  response to an existing lead, such as a confirmed compromise on one host where the
+  question is which other devices were touched. For broad estate-wide hunting, leave the
+  scoping commented out.
+
+  A useful refinement is to baseline each device's normal SMB destination set over the
+  preceding 30 days and surface only connections to previously-unseen IPs, which
+  substantially reduces noise from backup and replication traffic. This can be
+  implemented by joining against a summary table or watchlist of expected SMB
+  relationships.
+
+  Pair this hunt with detection of suspicious named pipe activity (`DeviceEvents` with
+  `ActionType == "NamedPipeEvent"`) for higher-fidelity coverage of PsExec-style lateral
+  movement, which uses the `\PIPE\svcctl` and `\PIPE\PSEXESVC` named pipes.
+
+references:
+  - label: "MITRE ATT&CK: Remote Services — SMB/Windows Admin Shares (T1021.002)"
+    url: https://attack.mitre.org/techniques/T1021/002/
+  - label: "MITRE ATT&CK: Network Share Discovery (T1135)"
+    url: https://attack.mitre.org/techniques/T1135/
+  - label: "Microsoft: Detecting human-operated ransomware attacks"
+    url: https://learn.microsoft.com/en-us/security/operations/incident-response-overview
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      let TimeFrame = 10d;                                                                          //Customizable timeframe - h = hours, d = days
+      let SuspiciousDevices = dynamic(['server1.com', 'laptop1.com']);                              //Devices to scope the hunt to
+      let LateralMovementThreshold = 5;                                                             //Flag devices connecting to more than this many unique IPs on port 445
+      DeviceNetworkEvents
+      | where TimeGenerated > ago(TimeFrame)                                                        //Filter to the defined time window
+      | where RemotePort == 445                                                                     //SMB traffic
+      | where ActionType == "ConnectionSuccess"                                                     //Only successful connections, excluding failed attempts
+      //| where DeviceName in~ (SuspiciousDevices)                                                  //Match against the scoped device list (if desired)
+      | extend Hour = bin(TimeGenerated, 1h)                                                        //Bin activity into 1-hour windows to spot bursts
+      | summarize
+          UniqueIPsAccessed = make_set(RemoteIP),                                                   //Collect the set of unique destination IPs
+          TotalConnections = count(),                                                               //Total number of SMB connections in the window
+          UniqueIPCount = dcount(RemoteIP),                                                         //Count of unique destination IPs contacted
+          UniqueRemotePorts = dcount(RemotePort),                                                   //Distinct remote ports (validation field, should be 1)
+          EarliestConnection = min(TimeGenerated),                                                  //First connection in the window
+          LatestConnection = max(TimeGenerated),                                                    //Last connection in the window
+          InitiatingProcesses = make_set(InitiatingProcessFileName),                                //Processes responsible for the SMB connections
+          AccountsUsed = make_set(InitiatingProcessAccountName)                                     //Accounts under which the connections were made
+          by DeviceName, LocalIP, Hour                                                              //Group by device, source IP, and hourly time bin
+      | where UniqueIPCount >= LateralMovementThreshold                                             //Surface only devices exceeding the threshold
+      | extend DurationMinutes = datetime_diff('minute', LatestConnection, EarliestConnection)      //Time span of activity within the hour
+      | project
+          DeviceName,                                                                               //Source device name
+          LocalIP,                                                                                  //Source IP address
+          Hour,                                                                                     //Time bin for the activity
+          UniqueIPCount,                                                                            //Number of unique IPs contacted
+          TotalConnections,                                                                         //Total SMB connection count
+          DurationMinutes,                                                                          //How compressed the activity window is
+          InitiatingProcesses,                                                                      //Processes initiating the connections
+          AccountsUsed,                                                                             //Accounts used for the connections
+          UniqueIPsAccessed                                                                         //Full list of destination IPs
+      | order by UniqueIPCount desc                                                                 //Most prolific devices first
+
+relatedHunts: [HL-001]
