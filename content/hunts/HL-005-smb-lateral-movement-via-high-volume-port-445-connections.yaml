@@ -124,7 +124,7 @@ references:
   - label: "MITRE ATT&CK: Network Share Discovery (T1135)"
     url: https://attack.mitre.org/techniques/T1135/
   - label: "Microsoft: Detecting human-operated ransomware attacks"
-    url: https://learn.microsoft.com/en-us/security/operations/incident-response-overview
+    url: https://learn.microsoft.com/en-gb/security/operations/incident-response-overview
 
 implementations:
   - platform: Microsoft Sentinel
