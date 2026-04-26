@@ -1,8 +1,8 @@
-id: HL-XXX
+id: HL-004
 title: Suspicious Device Registration Following Microsoft Authentication Broker Sign-In
 summary: >
   Detects device registration events that occur within a short window after a successful
-  sign-in to the Microsoft Authentication Broker — a behavioural pattern associated with
+  sign-in to the Microsoft Authentication Broker - a behavioural pattern associated with
   rogue device join attacks following AitM phishing, where an attacker uses a stolen
   session to register an attacker-controlled device and obtain a Primary Refresh Token
   for persistent access.
@@ -63,7 +63,7 @@ whatYoullSee: |
   user principal.
 
   In genuine attacker activity, the device OS and user agent in the broker sign-in will
-  often differ from the user's normal estate — common indicators include unexpected
+  often differ from the user's normal estate - common indicators include unexpected
   Linux user agents, mobile OS strings on accounts belonging to desktop-only users, or
   generic browser strings during what should be a native client flow.
 
@@ -102,7 +102,7 @@ falsePositives:
     user's home or remote working location rather than a corporate egress.
 
 curatorNotes: |
-  This hunt is Experimental — the underlying behaviour is genuinely common in healthy
+  This hunt is Experimental - the underlying behaviour is genuinely common in healthy
   tenants, and meaningful tuning is required before this can be promoted to a scheduled
   analytic rule. The recommended tuning approach is to suppress events from known
   corporate egress IPs, compliant or hybrid-joined source devices, and expected
@@ -117,12 +117,12 @@ curatorNotes: |
   the cost of investigation is justified even at the current false-positive rate.
 
 references:
-  - label: "MITRE ATT&CK: Account Manipulation — Device Registration (T1098.005)"
+  - label: "MITRE ATT&CK: Account Manipulation - Device Registration (T1098.005)"
     url: https://attack.mitre.org/techniques/T1098/005/
   - label: "Microsoft: Token theft playbook"
-    url: https://learn.microsoft.com/en-us/security/operations/token-theft-playbook
-  - label: "Microsoft: How it works — Azure AD device registration"
-    url: https://learn.microsoft.com/en-us/entra/identity/devices/device-registration-how-it-works
+    url: https://learn.microsoft.com/en-gb/security/operations/token-theft-playbook
+  - label: "Microsoft: How it works - Azure AD device registration"
+    url: https://learn.microsoft.com/en-gb/entra/identity/devices/device-registration-how-it-works
 
 implementations:
   - platform: Microsoft Sentinel
