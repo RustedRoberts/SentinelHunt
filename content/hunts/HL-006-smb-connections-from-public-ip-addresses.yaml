@@ -1,0 +1,205 @@
+id: HL-006
+title: Successful SMB Connections from Public IP Addresses
+summary: >
+  Detects successful inbound SMB (TCP 445) connections originating from public IP addresses,
+  enriched with geolocation data and correlated against failed connection attempts from the
+  same sources and against the same target devices. Externally exposed SMB services represent
+  a critical attack surface frequently exploited for lateral movement, ransomware deployment,
+  and data exfiltration.
+hypothesis: |
+  The Server Message Block (SMB) protocol operates on TCP port 445 and is designed for
+  internal network file sharing, printer access, and inter-process communication. Under
+  normal operating conditions, SMB traffic should never traverse the public internet -
+  firewalls and network security policies should block inbound connections on port 445
+  at the perimeter.
+
+  When a successful SMB connection is observed from a public IP address, it indicates one
+  of two scenarios: either a misconfigured firewall or cloud network security group has
+  inadvertently exposed the service, or an adversary has established connectivity through
+  a compromised VPN, tunnel, or port-forwarding mechanism. In either case, the device is
+  at immediate risk of exploitation.
+
+  This hunt correlates successful connections with failed attempts from the same remote IP
+  across the estate, and with failed SMB attempts against the same target device from any
+  public source. This correlation helps distinguish targeted attacks (repeated failures
+  followed by success against a single host) from broad scanning campaigns (failures
+  across many devices and ports). Geolocation enrichment via `geo_info_from_ip_address()`
+  provides additional context to identify connections from unexpected regions.
+
+  The `DeviceNetworkEvents` table in Microsoft Defender for Endpoint captures both
+  `ConnectionSuccess` and `ConnectionFailed` action types, making it the ideal data source
+  for this correlation.
+author: RustedRoberts
+updated: "2026-04-26"
+version: "1.0"
+
+tactics:
+  - Lateral Movement
+  - Initial Access
+
+techniques:
+  - id: T1021.002
+    name: "Remote Services: SMB/Windows Admin Shares"
+  - id: T1190
+    name: "Exploit Public-Facing Application"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Experimental
+signal: High
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  The primary indicator is a `DeviceNetworkEvents` record with `ActionType` of
+  `ConnectionSuccess`, `RemotePort` of `445`, and `RemoteIPType` of `Public`. The
+  `RemoteIP` field will contain an internet-routable address rather than an RFC 1918
+  private range.
+
+  Geolocation fields derived from `geo_info_from_ip_address()` will show the city and
+  country of the remote endpoint - connections from regions where the organisation has
+  no business presence are particularly suspicious.
+
+  The enrichment joins reveal broader context:
+  - **Successful connection counts** per IP per device show whether the connection is
+    a one-off or part of sustained access.
+  - **Failed attempts from the same public IP** across any device and any port indicate
+    scanning or brute-force behaviour preceding the successful connection.
+  - **Failed SMB attempts against the same device** from other public IPs suggest the
+    device is broadly exposed and being targeted by multiple actors.
+
+  A true positive typically presents as a successful SMB connection from an unfamiliar
+  public IP, potentially preceded by failed connection attempts, with no corresponding
+  VPN or legitimate remote-access session for the target device.
+
+investigationSteps:
+  - "Verify whether the target device is intentionally exposed to the internet on port 445.
+    Check firewall rules, cloud NSG/security group configurations, and any NAT or
+    port-forwarding rules that may route public traffic to the host."
+  - "Examine the remote IP address: perform a WHOIS lookup and check against threat
+    intelligence feeds. Determine whether the IP belongs to a known VPN provider, cloud
+    hosting service, or Tor exit node."
+  - "If the IP address is a Microsoft Azure public IP, check the services used behind
+    that IP using https://www.azurespeed.com/Azure/IPLookup"
+  - "Review the geolocation data: does the connection originate from a country or region
+    where the organisation operates or has remote workers? Unexpected geolocations
+    increase the severity of the finding."
+  - "Correlate with authentication logs: check for corresponding logon events (Event ID
+    4624 Type 3) on the target device around the same timestamp. Identify which account
+    was used and whether the credentials are valid domain accounts."
+  - "Assess the failed connection context: a high volume of failed attempts from the same
+    IP before a success suggests credential brute-forcing or exploit attempts. Failed SMB
+    from multiple public IPs against the same device suggests broad exposure."
+  - "Check for follow-on activity: look for file access, lateral movement, scheduled task
+    creation, or service installation on the target device in the minutes and hours
+    following the successful SMB connection."
+  - "If confirmed as unauthorised, isolate the device immediately, block the remote IP at
+    the perimeter firewall, and initiate incident response procedures."
+
+falsePositives:
+  - Legitimate remote administration tools or managed service providers that connect via
+    SMB over the public internet (poor practice but occasionally seen in smaller
+    organisations).
+  - VPN or SD-WAN solutions that NAT traffic through public IP ranges before delivering
+    it to internal endpoints, causing the connection to appear as originating from a
+    public address.
+  - Cloud-hosted file servers or NAS devices intentionally exposed on port 445 for
+    remote branch office connectivity (should be migrated to a VPN or zero-trust
+    architecture).
+  - Security scanning tools or vulnerability assessments that test SMB connectivity from
+    external vantage points.
+
+curatorNotes: |
+  This hunt is marked Experimental. The expected false-positive rate depends heavily on
+  the organisation's network architecture - environments with properly segmented networks
+  and no intentional SMB exposure should see very few results, making any hit a high-priority
+  finding.
+
+  Tuning considerations:
+  - Build an exclusion list for known legitimate public IPs (e.g., managed service provider
+    ranges) if required, but prefer to remediate the exposure rather than suppress the alert.
+  - The geolocation enrichment adds processing overhead; for very large environments,
+    consider pre-filtering to known-exposed subnets.
+  - The failed-connection correlation joins can produce large result sets in environments
+    under active scanning - consider adjusting the lookback window from 1 day to a shorter
+    period if performance is a concern.
+
+  Promotion criteria: sustained true-positive rate above 80% across two or more customer
+  environments, with a documented exclusion methodology.
+
+references:
+  - label: "MITRE ATT&CK: Remote Services - SMB/Windows Admin Shares (T1021.002)"
+    url: https://attack.mitre.org/techniques/T1021/002/
+  - label: "MITRE ATT&CK: Exploit Public-Facing Application (T1190)"
+    url: https://attack.mitre.org/techniques/T1190/
+  - label: "Microsoft: Preventing SMB traffic from lateral connections and entering or leaving the network"
+    url: https://learn.microsoft.com/en-gb/previous-versions/windows/it-pro/windows-server-2016/security/preventing-smb-traffic-from-lateral-connections
+  - label: "NCSC: SMB Security Best Practices"
+    url: https://www.ncsc.gov.uk/collection/device-security-guidance
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // 1. Successful SMB connections from public IPs
+      let SuccessfulSMB = DeviceNetworkEvents
+      | where RemoteIPType == "Public"                                                                    // Only public-facing source IPs
+      | where RemotePort == 445                                                                           // SMB port
+      | where ActionType == "ConnectionSuccess"                                                           // Successful connections only
+      | extend LocationDetails = geo_info_from_ip_address(RemoteIP)                                       // Geo-locate the remote IP
+      | extend RemoteIPGeoData = strcat(tostring(LocationDetails.city), ", ", tostring(LocationDetails.country)); // Format as "City, Country"
+      // 2. Successful connection counts per IP per device
+      let SuccessCounts = SuccessfulSMB
+      | summarize
+          SuccessfulConnections = count(),                                                                // Total successful connections for this IP/device pair
+          SuccessTimeRange = strcat(format_datetime(min(Timestamp), "yyyy-MM-dd HH:mm"), " to ", format_datetime(max(Timestamp), "yyyy-MM-dd HH:mm"))  // First to last success
+          by RemoteIP, DeviceName;                                                                        // Scoped per source IP per target device
+      // 3. Any failed connections from those same public IPs, on any device, any port
+      let FailedByIP = DeviceNetworkEvents
+      | where ActionType == "ConnectionFailed"                                                            // Failed connections only
+      | where RemoteIP in ((SuccessfulSMB | distinct RemoteIP))                                           // Only IPs that had a successful SMB connection
+      | summarize
+          FailedAttemptsByIP = count(),                                                                   // Total failed attempts from this IP
+          FailedDevices = make_set(DeviceName, 25),                                                       // Which devices saw failures from this IP
+          FailedPorts = make_set(RemotePort, 25),                                                         // Which ports were tried — useful for spotting scanning
+          FailedTimeRange = strcat(format_datetime(min(Timestamp), "yyyy-MM-dd HH:mm"), " to ", format_datetime(max(Timestamp), "yyyy-MM-dd HH:mm"))  // First to last failure
+          by RemoteIP;                                                                                    // Grouped by source IP regardless of target
+      // 4. Failed SMB connections from any public IP against the same devices that had a successful SMB connection
+      let FailedSMBByDevice = DeviceNetworkEvents
+      | where RemoteIPType == "Public"                                                                    // Public sources only
+      | where RemotePort == 445                                                                           // SMB port
+      | where ActionType == "ConnectionFailed"                                                            // Failed connections only
+      | where DeviceName in ((SuccessfulSMB | distinct DeviceName))                                       // Only devices that had a successful SMB connection
+      | summarize
+          FailedSMBAttempts = count(),                                                                    // Total failed SMB attempts against this device
+          FailedSMBSourceIPs = make_set(RemoteIP, 25),                                                    // Which public IPs failed — may differ from the successful one
+          FailedSMBTimeRange = strcat(format_datetime(min(Timestamp), "yyyy-MM-dd HH:mm"), " to ", format_datetime(max(Timestamp), "yyyy-MM-dd HH:mm"))  // First to last failure
+          by DeviceName;                                                                                  // Grouped by target device regardless of source
+      // Bring it all together
+      SuccessfulSMB
+      | join kind=leftouter (SuccessCounts) on RemoteIP, DeviceName                                       // Enrich with successful connection counts
+      | join kind=leftouter (FailedByIP) on RemoteIP                                                      // Enrich with failure context for the same source IP
+      | join kind=leftouter (FailedSMBByDevice) on DeviceName                                             // Enrich with SMB failure context for the same target device
+      | project
+          Timestamp,
+          DeviceName,
+          RemoteIP,
+          RemoteIPGeoData,
+          RemotePort,
+          SuccessfulConnections = coalesce(SuccessfulConnections, 0),                                     // Default to 0 if no match
+          SuccessTimeRange = iff(isempty(SuccessTimeRange), "None", SuccessTimeRange),                     // Default to "None" if no match
+          FailedAttemptsByIP = coalesce(FailedAttemptsByIP, 0),                                            // Default to 0 if no match
+          FailedDevices = iff(isempty(tostring(FailedDevices)), "None", tostring(FailedDevices)),           // Cast dynamic to string before empty check
+          FailedPorts = iff(isempty(tostring(FailedPorts)), "None", tostring(FailedPorts)),                 // Cast dynamic to string before empty check
+          FailedTimeRange = iff(isempty(FailedTimeRange), "None", FailedTimeRange),                        // Default to "None" if no match
+          FailedSMBAttempts = coalesce(FailedSMBAttempts, 0),                                              // Default to 0 if no match
+          FailedSMBSourceIPs = iff(isempty(tostring(FailedSMBSourceIPs)), "None", tostring(FailedSMBSourceIPs)), // Cast dynamic to string before empty check
+          FailedSMBTimeRange = iff(isempty(FailedSMBTimeRange), "None", FailedSMBTimeRange)                // Default to "None" if no match
+
+relatedHunts:
+  - HL-005: SMB Lateral Movement via High-Volume Port 445 Connections
