@@ -1,0 +1,195 @@
+id: HL-007
+title: Entra ID Privileged Directory Role Assignment Audit
+summary: >
+  Enumerates all sensitive Entra ID (formerly Azure AD) directory role assignments by
+  cross-referencing the EntraOps classification framework with the Microsoft Sentinel
+  UEBA IdentityInfo table. Flags guest accounts holding administrative roles and users
+  marked as at-risk, providing a prioritised view of privileged access that may indicate
+  over-provisioning, stale assignments, or compromised administrative accounts.
+hypothesis: |
+  Microsoft Entra ID directory roles grant powerful permissions across the tenant — from
+  Global Administrator (full control) down to targeted roles such as Exchange Administrator
+  or Authentication Policy Administrator. Adversaries who compromise a privileged account
+  gain the ability to modify security policies, create backdoor accounts, extract sensitive
+  data, and disable protective controls. Equally, insider threats are amplified when
+  unnecessary role assignments persist.
+
+  This hunt does not detect a single event; rather, it produces a point-in-time inventory
+  of privileged role assignments enriched with risk and hygiene indicators. The EntraOps
+  classification dataset (maintained by the Cloud-Architekt project) categorises every
+  Entra directory role by tier level, privilege status, and permission category, filtering
+  out roles classified as "Unclassified" to focus on those with genuine administrative
+  impact.
+
+  The `IdentityInfo` table from Microsoft Sentinel UEBA provides the user-to-role mapping
+  along with account metadata such as `UserType` (Member vs Guest), `IsAccountEnabled`,
+  `RiskState`, and `Tags`. By joining these two datasets, the hunt surfaces several
+  high-value findings:
+
+  - **Guest accounts with administrative roles**: external identities (B2B guests) holding
+    privileged directory roles represent a significant control gap, as their lifecycle is
+    typically managed outside the organisation's standard joiner-mover-leaver processes.
+  - **At-risk administrators**: accounts flagged by Entra ID Identity Protection as `AtRisk`
+    that also hold privileged roles demand immediate investigation — a compromised admin
+    account is one of the most impactful breach scenarios.
+  - **Role assignment concentration**: roles with large numbers of members may indicate
+    over-provisioning contrary to least-privilege principles.
+  - **Disabled accounts retaining roles**: accounts that are no longer enabled but still
+    hold role assignments represent stale configuration that could be re-activated by an
+    attacker.
+
+  The output groups results by role, showing the EntraOps tier classification, whether
+  the role is considered privileged, the permission categories involved, and a full list
+  of role assignments with per-user detail. The `RiskyAdmins` and `GuestAsAdmins` boolean
+  flags at the role level provide rapid triage indicators.
+author: RustedRoberts
+updated: "2026-04-28"
+version: "1.0"
+
+tactics:
+  - Discovery
+  - Privilege Escalation
+
+techniques:
+  - id: T1087.004
+    name: "Account Discovery: Cloud Account"
+  - id: T1078.004
+    name: "Valid Accounts: Cloud Accounts"
+
+platforms:
+  - Azure AD / Entra ID
+
+methodology: Anomaly
+maturity: Experimental
+signal: Medium
+
+dataSources:
+  - product: Microsoft Sentinel UEBA
+    table: IdentityInfo
+    required: true
+  - product: EntraOps Classification (external dataset)
+    table: Classification_EntraIdDirectoryRoles.json
+    required: true
+
+whatYoullSee: |
+  The query returns one row per Entra ID directory role that has at least one member and
+  is classified as something other than "Unclassified" in the EntraOps framework. Each
+  row includes:
+
+  - `RoleName` — the display name of the directory role (e.g. Global Administrator,
+    Privileged Role Administrator).
+  - `RichDescription` — a detailed description of the role's purpose from the Graph API.
+  - `EntraOpsClassification` — the EntraOps tier-level name (e.g. ControlPlane,
+    ManagementPlane), indicating the blast radius of the role.
+  - `isPrivileged` — boolean flag from the EntraOps dataset indicating whether the role
+    is considered privileged.
+  - `EntraOpsCategory` — the set of permission categories the role covers.
+  - `Categories` — comma-separated categories from the classification dataset.
+  - `RoleMembers` — count of users assigned to the role.
+  - `RoleAssignments` — a list of per-user detail bags containing `AccountName`,
+    `AccountUPN`, `UserType` (Member or Guest), `Tags`, `AccountEnabled` (Yes/No),
+    and `RiskState`.
+  - `RiskyAdmins` — boolean flag set to `true` if any member of the role has a `RiskState`
+    of `AtRisk`.
+  - `GuestAsAdmins` — boolean flag set to `true` if any member of the role has a
+    `UserType` of `Guest`.
+
+  A true positive for concern would be a ControlPlane role (e.g. Global Administrator)
+  with the `RiskyAdmins` flag set to `true`, indicating a compromised or suspected-
+  compromised account holds tenant-wide administrative permissions. Similarly, a
+  `GuestAsAdmins` flag on a privileged role warrants immediate review.
+
+investigationSteps:
+  - "Review any roles where `RiskyAdmins` is `true`: identify the specific at-risk user(s)
+    within the `RoleAssignments` list by checking each entry's `RiskState` field. Cross-
+    reference with Entra ID Identity Protection to understand the risk detections that
+    triggered the flag."
+  - "For roles with `GuestAsAdmins` set to `true`: identify the guest account(s) and verify
+    whether the role assignment is intentional and approved. Check whether the guest's home
+    tenant is a known partner organisation and whether the assignment follows a documented
+    exception process."
+  - "Examine roles with high `RoleMembers` counts: compare against your organisation's
+    least-privilege policy. Roles such as Global Administrator should typically have no more
+    than two to four permanent assignments (plus break-glass accounts)."
+  - "Check for disabled accounts retaining roles: within `RoleAssignments`, look for entries
+    where `AccountEnabled` is `No`. These represent stale assignments that should be removed
+    to reduce the attack surface."
+  - "Validate that all ControlPlane and ManagementPlane role assignments are covered by
+    Privileged Identity Management (PIM) eligible assignments rather than permanent active
+    assignments, where supported."
+
+falsePositives:
+  - "Guest accounts from trusted partner organisations that are intentionally granted
+    administrative roles under a documented cross-tenant administration arrangement."
+  - "Service accounts or shared mailbox accounts flagged as at-risk due to impossible-
+    travel detections generated by automated processes running from multiple regions."
+  - "Break-glass (emergency access) accounts that are intentionally assigned Global
+    Administrator permanently and may appear as over-provisioned."
+
+curatorNotes: |
+  This hunt is currently Experimental. The external dataset from Cloud-Architekt
+  (Classification_EntraIdDirectoryRoles.json) is fetched at query runtime via
+  `externaldata()` — ensure the Sentinel workspace has outbound HTTPS access to
+  raw.githubusercontent.com, or consider caching the dataset in an Azure Storage account
+  or Watchlist.
+
+  The `IdentityInfo` table is populated by Sentinel UEBA and requires UEBA to be enabled
+  in the workspace. Data is typically refreshed daily, so results reflect the most recent
+  sync rather than real-time state.
+
+  Signal strength is set to Medium because this is an inventory/audit hunt rather than an
+  event-driven detection — findings require analyst judgment to distinguish legitimate
+  administrative configuration from security concerns. Consider promoting to Production
+  once an exclusion list of approved guest administrators and known break-glass accounts
+  has been established.
+
+  A natural follow-on is to schedule this as a weekly analytic rule that alerts only when
+  new `RiskyAdmins` or `GuestAsAdmins` flags appear compared to the previous run.
+
+references:
+  - label: "MITRE ATT&CK: Account Discovery — Cloud Account (T1087.004)"
+    url: https://attack.mitre.org/techniques/T1087/004/
+  - label: "MITRE ATT&CK: Valid Accounts — Cloud Accounts (T1078.004)"
+    url: https://attack.mitre.org/techniques/T1078/004/
+  - label: "Cloud-Architekt/AzurePrivilegedIAM — EntraOps Classification"
+    url: https://github.com/Cloud-Architekt/AzurePrivilegedIAM
+  - label: "Microsoft: Entra ID built-in roles"
+    url: https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
+  - label: "Microsoft: UEBA IdentityInfo table reference"
+    url: https://learn.microsoft.com/en-us/azure/sentinel/ueba-reference
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Entra ID Privileged Directory Role Assignment Audit
+      // Enumerates sensitive directory roles and their members, flagging guest and at-risk accounts.
+      // Requires: Sentinel UEBA (IdentityInfo table), outbound access to raw.githubusercontent.com
+      //
+      // 1. Load the EntraOps classification dataset for Entra directory roles
+      let SensitiveEntraDirectoryRoles = externaldata(RoleName: string, RoleId: string, Categories: string, RichDescription: string, isPrivileged: bool, Classification: dynamic, RolePermissions:dynamic)["https://raw.githubusercontent.com/Cloud-Architekt/AzurePrivilegedIAM/main/Classification/Classification_EntraIdDirectoryRoles.json"] with(format='multijson')
+      | where Classification.EAMTierLevelName != "Unclassified"
+      | mv-expand RolePermissions
+      | extend Categories = split(Categories,',')
+      | summarize EntraOpsCategory = make_set(RolePermissions.Category), Categories = make_set(Categories) by RoleName, isPrivileged, EntraOpsClassification = tostring(Classification.EAMTierLevelName), RichDescription;
+      //
+      // 2. Get the latest role assignments from UEBA IdentityInfo (last 14 days)
+      let PrivilegedUsers = IdentityInfo
+      | where TimeGenerated > ago(14d)
+      | summarize arg_max(TimeGenerated, *) by AccountObjectId
+      | mv-expand AssignedRoles
+      | extend RoleName = tostring(AssignedRoles);
+      //
+      // 3. Join roles to members and build per-role summary with risk and guest flags
+      SensitiveEntraDirectoryRoles
+      | join kind=inner ( PrivilegedUsers ) on RoleName
+      | extend AccountEnabled = iif(IsAccountEnabled == true, "Yes","No")
+      | extend RoleAssignment = bag_pack("AccountName", AccountName, "AccountUPN", AccountUPN, "UserType", UserType, "Tags", Tags, "AccountEnabled", AccountEnabled, "RiskState", RiskState)
+      | summarize RoleMembers = count(), RoleAssignments = make_list(RoleAssignment), RiskState = make_list(RiskState), UserType = make_list(UserType) by RoleName, tostring(Categories), tostring(EntraOpsCategory), isPrivileged, tostring(EntraOpsClassification), tostring(RichDescription)
+      | extend RiskyAdmins = iff(RiskState has "AtRisk", true, false)
+      | extend GuestAsAdmins = iff(UserType has "Guest", true, false)
+      | project-reorder RiskState, RoleName, RichDescription, EntraOpsClassification, isPrivileged, EntraOpsCategory,Categories, RoleMembers, RoleAssignments
+      | sort by RoleName asc
+      | project-away RiskState, UserType
+
+relatedHunts:
