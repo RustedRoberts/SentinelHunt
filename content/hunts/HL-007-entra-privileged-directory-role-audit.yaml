@@ -192,4 +192,4 @@ implementations:
       | sort by RoleName asc
       | project-away RiskState, UserType
 
-relatedHunts:
+relatedHunts: []
