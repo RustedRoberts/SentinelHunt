@@ -1,0 +1,163 @@
+id: HL-008
+title: Windows Firewall Tampering by Non-System Processes
+summary: >
+  Detects non-system processes creating, deleting, disabling, or modifying Windows Firewall
+  rules via PowerShell cmdlets or netsh.exe. Aggregates changes by account, device, and
+  initiating process to surface anomalous volume and rare process lineage indicative of
+  post-exploitation firewall manipulation.
+
+hypothesis: |
+  The Windows Firewall is a critical host-based defence that controls inbound and outbound
+  network traffic. Adversaries routinely tamper with firewall configuration during
+  post-exploitation to enable command-and-control communications, open ports for lateral
+  movement tools, or disable protective rules that would otherwise block their tooling.
+
+  Firewall modifications on Windows are performed through two primary interfaces: the
+  PowerShell `NetFirewallRule` and `NetFirewallProfile` cmdlets, and the legacy `netsh
+  advfirewall` command-line utility. Both produce process creation events in Microsoft
+  Defender for Endpoint's `DeviceProcessEvents` table, with the full command line captured
+  in `ProcessCommandLine`. This telemetry includes the initiating process chain, integrity
+  level, and account context — all of which are valuable for distinguishing legitimate
+  administrative activity from attacker-driven changes.
+
+  Under normal operations, firewall modifications originate from a small set of known
+  sources: Group Policy client processes running at SYSTEM integrity, endpoint management
+  agents (SCCM, Intune), and legitimate software installers. Any modification initiated by
+  a non-SYSTEM process — particularly one spawned from an interactive user session or an
+  unexpected parent process — warrants investigation.
+
+  The query classifies each change as Create, Delete, Disable, or Modify, and aggregates
+  by account, device, and initiating process to highlight anomalous volume and rare process
+  lineage. Deletions and profile disables are higher severity than rule creations or
+  modifications.
+
+author: RustedRoberts
+updated: "2026-05-03"
+version: "1.0"
+
+tactics:
+  - Defence Evasion
+
+techniques:
+  - id: T1562.004
+    name: "Impair Defences: Disable or Modify System Firewall"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Tuning
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+
+whatYoullSee: |
+  In `DeviceProcessEvents`, look for `ProcessCommandLine` values containing PowerShell
+  firewall cmdlets (`New-NetFirewallRule`, `Set-NetFirewallRule`, `Remove-NetFirewallRule`,
+  `Set-NetFirewallProfile`, `Disable-NetFirewallRule`, `Enable-NetFirewallRule`) or netsh
+  equivalents (`netsh advfirewall firewall add rule`, `netsh advfirewall firewall delete
+  rule`, `netsh advfirewall set`).
+
+  The summarised output groups changes by account, device, and initiating process. A high
+  `TotalChanges` count from a single account or device, or an unfamiliar initiating
+  process, are the primary triage signals. The `Actions` set shows whether the activity is
+  predominantly creating, deleting, or disabling rules — deletions and disables are higher
+  severity. The `SampleCommands` field provides up to five example command lines for quick
+  inspection.
+
+investigationSteps:
+  - "Identify the initiating process: examine `InitiatingProcessFileName` and
+    `InitiatingProcessFolderPath`. Known-good sources include SCCM/Intune agents,
+    legitimate software installers, and Group Policy processes. Binaries running from
+    temporary directories, user profile paths, or renamed system utilities are suspicious."
+  - "Check the process hash: submit the `InitiatingProcessSHA256` to your threat
+    intelligence platform. Low-prevalence or unsigned binaries warrant escalation."
+  - "Review the process tree: what spawned the initiating process? An execution chain
+    ending in cmd.exe or powershell.exe from an interactive user session suggests
+    hands-on-keyboard attacker activity."
+  - "Classify the firewall action: rule deletions and profile disables are higher severity
+    than rule creations. If the attacker is disabling the firewall entirely
+    (Set-NetFirewallProfile -Enabled False or netsh advfirewall set allprofiles state off),
+    treat this as a critical finding."
+  - "Check for lateral movement indicators: look for new logon events (Event ID 4624
+    Type 3 or 10) on the affected device within the same timeframe, particularly using
+    accounts not previously active on that host."
+
+falsePositives:
+  - Legitimate software installers that create or clean up firewall rules as part of their
+    installation or uninstallation process (e.g. the LG SuperSign installer observed in
+    sample data, which deletes its own firewall rules during uninstall).
+  - Endpoint management tools (SCCM, Intune, PDQ Deploy) deploying software packages that
+    include firewall rule provisioning, where the deployment agent runs under a named
+    admin account rather than SYSTEM.
+  - IT administrators manually configuring firewall rules via PowerShell or netsh during
+    legitimate troubleshooting or infrastructure provisioning — particularly common in
+    environments without centralised firewall policy management.
+
+curatorNotes: |
+  This hunt is at Tuning maturity. The primary tuning requirement is building an exclusion
+  list of known-legitimate initiating processes by SHA256 hash (not filename, to prevent
+  exclusion bypass via renamed binaries). The `ProcessIntegrityLevel != "System"` filter
+  excludes the majority of GPO-driven and management agent changes, but note that some
+  attacker tools can elevate to SYSTEM integrity — consider periodically reviewing
+  SYSTEM-level changes as a separate sweep.
+
+  The 14-day lookback window should be adjusted to match the organisation's hunt cadence.
+  In environments with high volumes of legitimate installer activity, consider adding a
+  threshold filter (e.g. `| where TotalChanges > 5`) to reduce noise.
+
+  Signal is rated Medium because while firewall tampering is a reliable indicator of
+  post-exploitation, the high volume of legitimate software-driven changes in most
+  enterprise environments means the raw signal-to-noise ratio requires analyst judgement.
+
+references:
+  - label: "MITRE ATT&CK: Impair Defences — Disable or Modify System Firewall (T1562.004)"
+    url: https://attack.mitre.org/techniques/T1562/004/
+  - label: "Atomic Red Team: T1562.004 test cases"
+    url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
+  - label: "Microsoft: Windows Defender Firewall with Advanced Security"
+    url: https://learn.microsoft.com/en-gb/windows/security/operating-system-security/network-security/windows-firewall/
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ── Behavioural firewall tampering — aggregated hunt
+      // Surfaces non-system processes modifying Windows Firewall config,
+      // aggregated by account, device, and initiating process to highlight
+      // anomalous volume and rare process lineage.
+
+      DeviceProcessEvents
+      | where Timestamp > ago(14d)                                                    // Lookback window — adjust to match hunt cadence
+      | where ProcessCommandLine has_any (
+          "New-NetFirewallRule", "Set-NetFirewallRule", "Remove-NetFirewallRule",      // PowerShell firewall cmdlets
+          "Set-NetFirewallProfile", "Disable-NetFirewallRule", "Enable-NetFirewallRule",
+          "netsh advfirewall firewall add rule",                                      // netsh equivalents
+          "netsh advfirewall firewall delete rule",
+          "netsh advfirewall set"
+      )
+      | where ProcessIntegrityLevel != "System"                                       // Exclude GPO / endpoint management (SYSTEM-level)
+      | extend FirewallAction = case(
+          ProcessCommandLine has_any ("Remove-NetFirewallRule", "delete rule"),   "Delete",       // Rule removal
+          ProcessCommandLine has_any ("Disable-NetFirewallRule", "set allprofiles state off",
+                                      "set currentprofile state off"),            "Disable",      // Profile or rule disabled
+          ProcessCommandLine has_any ("New-NetFirewallRule", "add rule"),         "Create",       // New rule creation
+          ProcessCommandLine has_any ("Set-NetFirewallRule", "Set-NetFirewallProfile",
+                                      "Enable-NetFirewallRule"),                  "Modify",       // Existing rule/profile changed
+          "Other"
+      )
+      | summarize
+          TotalChanges        = count(),                                              // Volume of changes per grouping
+          Actions             = make_set(FirewallAction),                             // Distinct action types observed
+          InitiatingProcesses = make_set(InitiatingProcessFileName),                  // All parent processes involved
+          EarliestChange      = min(Timestamp),                                       // First seen in window
+          LatestChange        = max(Timestamp),                                       // Last seen in window
+          SampleCommands      = make_set(ProcessCommandLine, 5)                       // Up to 5 sample command lines for triage
+        by AccountName, AccountUpn, DeviceName, InitiatingProcessFileName             // Group per account x device x process
+      | order by TotalChanges desc                                                    // Highest volume first
+
+relatedHunts:
+  - HL-007

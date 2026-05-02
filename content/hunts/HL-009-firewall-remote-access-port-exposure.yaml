@@ -1,0 +1,178 @@
+id: HL-009
+title: Firewall Rule Creation Exposing Remote-Access Ports
+summary: >
+  Detects inbound-allow Windows Firewall rules being created for commonly abused
+  remote-access ports such as RDP, SSH, VNC, WinRM, SMB, Radmin, and Telnet. Parses the
+  port number and direction from the process command line and enriches each finding with a
+  human-readable service name to accelerate analyst triage.
+
+hypothesis: |
+  A common post-exploitation step is to open inbound firewall ports that enable remote
+  access to a compromised host. Adversaries create inbound-allow rules for protocols such
+  as RDP (3389), SSH (22), VNC (5900-5901), WinRM (5985-5986), SMB (445), Radmin (4899),
+  and Telnet (23) to establish persistent remote access, facilitate lateral movement, or
+  enable file transfer channels.
+
+  On Windows, these rules are created via `New-NetFirewallRule` (PowerShell) or `netsh
+  advfirewall firewall add rule` (command line). Both syntaxes include the port number,
+  direction, and action in the `ProcessCommandLine` field of `DeviceProcessEvents`,
+  allowing reliable extraction and matching against a known high-risk port list.
+
+  The combination of direction (`Inbound` / `dir=in`) and action (`Allow` / `action=allow`)
+  is the critical filter — this isolates rules that permit inbound traffic rather than
+  blocking it or controlling outbound flows. While the host firewall rule alone does not
+  guarantee external reachability (upstream network controls such as perimeter firewalls
+  and NSGs may still block the traffic), the creation of such a rule reveals attacker
+  intent and is frequently the precursor to successful remote access.
+
+  This hunt should be correlated with `DeviceNetworkEvents` to determine whether inbound
+  connections on the flagged port materialise after the rule is created, confirming
+  exploitation rather than just preparation.
+
+author: RustedRoberts
+updated: "2026-05-03"
+version: "1.0"
+
+tactics:
+  - Defence Evasion
+
+techniques:
+  - id: T1562.004
+    name: "Impair Defences: Disable or Modify System Firewall"
+
+platforms:
+  - Windows
+
+methodology: Signature
+maturity: Tuning
+signal: High
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+
+whatYoullSee: |
+  Individual events in `DeviceProcessEvents` where a non-SYSTEM process has created an
+  inbound-allow firewall rule for a known remote-access port. The `ServiceName` field maps
+  the extracted port to a human-readable protocol name (e.g. RDP, SSH, VNC), enabling
+  rapid triage without manual port-to-service lookups.
+
+  The `InitiatingProcess` and `InitiatingPath` fields reveal what spawned the firewall
+  change. Legitimate installers will have recognisable paths and signed binaries, whereas
+  attacker-driven changes often originate from temporary directories, user profile paths,
+  or renamed system utilities. The `ProcessHash` field provides the SHA256 of the
+  initiating process for threat intelligence lookup.
+
+  A true positive typically presents as a rule creation for RDP or WinRM initiated by an
+  unexpected process (e.g. powershell.exe spawned from cmd.exe, or an unknown binary in
+  a user's AppData directory), often shortly before or after other post-exploitation
+  indicators such as new service installations, scheduled task creation, or credential
+  access events.
+
+investigationSteps:
+  - "Verify the initiating process: is `InitiatingProcessFileName` a known-legitimate
+    installer or management agent? Check the `InitiatingProcessFolderPath` — binaries
+    in temporary directories, user profile paths, or world-writable locations are
+    suspicious."
+  - "Submit the process hash: look up `ProcessHash` (SHA256) in your threat intelligence
+    platform. Unknown or low-prevalence hashes warrant immediate escalation."
+  - "Check whether the port is reachable: cross-reference with DeviceNetworkEvents for
+    inbound connections on the flagged port within 30 minutes of the rule creation. If
+    connections are observed, the host is actively exposed."
+  - "Review the process tree: trace the parent chain of the initiating process. An
+    execution chain involving cmd.exe, powershell.exe, or wscript.exe from an interactive
+    session suggests hands-on-keyboard attacker activity."
+  - "Look for correlated post-exploitation: check for new service installations
+    (DeviceEvents ActionType == 'ServiceInstalled'), scheduled task creation, or
+    credential access events on the same device within the same timeframe."
+  - "Assess network exposure: determine whether upstream controls (perimeter firewall,
+    NSGs, NAT) would permit external traffic to reach the port. If so, treat as a
+    critical finding regardless of whether inbound connections have been observed yet."
+
+falsePositives:
+  - Remote support tools (e.g. ConnectWise, Datto RMM) that create inbound firewall rules
+    for their agent communication ports during installation, where the installer runs under
+    a named admin account rather than SYSTEM.
+  - IT administrators enabling RDP or WinRM for legitimate remote management during
+    infrastructure provisioning or troubleshooting, particularly in environments without
+    centralised firewall policy via GPO.
+  - Development or test environments where engineers create temporary firewall rules to
+    expose services for testing purposes.
+
+curatorNotes: |
+  Signal is rated High because inbound-allow rules for remote-access ports are a
+  high-fidelity indicator of post-exploitation intent — the false positive surface is
+  narrow compared to the broad firewall tampering hunt in HL-006. The primary tuning
+  requirement is excluding known-legitimate remote support tool installers by SHA256 hash.
+
+  The remote-access port list should be extended to include any additional ports relevant
+  to the organisation's threat model. Common additions include AnyDesk (7070), TeamViewer
+  (5938), or custom C2 ports observed in prior incidents. Add these to both the
+  `RemoteAccessPorts` dynamic array and the `ServiceName` case statement.
+
+  This hunt detects rule creation only — it does not detect whether the port is actually
+  reachable from external networks. For complete coverage, pair this with HL-004 (SMB
+  Connections from Public IPs) or a network-level scan of externally exposed services.
+
+  The `extract()` regex handles both PowerShell (`-LocalPort 3389`) and netsh
+  (`localport=3389`) syntax. If the organisation uses additional firewall management tools
+  that produce different command-line formats, the regex may need extending.
+
+references:
+  - label: "MITRE ATT&CK: Impair Defences — Disable or Modify System Firewall (T1562.004)"
+    url: https://attack.mitre.org/techniques/T1562/004/
+  - label: "Atomic Red Team: T1562.004 test cases"
+    url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
+  - label: "Microsoft: Windows Defender Firewall with Advanced Security"
+    url: https://learn.microsoft.com/en-gb/windows/security/operating-system-security/network-security/windows-firewall/
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ── Remote-access port exposure via firewall rule creation
+      // Detects inbound-allow firewall rules being created for commonly
+      // abused remote-access ports (RDP, SSH, VNC, WinRM, SMB).
+
+      let RemoteAccessPorts = dynamic(["3389", "22", "5900", "5901", "5985", "5986", "445", "4899", "23"]);
+      DeviceProcessEvents
+      | where Timestamp > ago(14d)                                                    // Lookback window — adjust to match hunt cadence
+      | where ProcessCommandLine has_any (
+          "New-NetFirewallRule", "netsh advfirewall firewall add rule"                 // Only rule creation — not modify/delete
+      )
+      | where ProcessIntegrityLevel != "System"                                       // Exclude GPO / endpoint management
+      | where ProcessCommandLine has_any ("Inbound", "dir=in")                        // Must be an inbound rule
+      | where ProcessCommandLine has_any ("Allow", "action=allow")                    // Must permit traffic, not block
+      | extend ExtractedPort = extract(
+          @"(?i)(?:LocalPort[= ]+|localport=)(\d+)", 1, ProcessCommandLine           // Handles -LocalPort 3389 and localport=3389
+      )
+      | where ExtractedPort in (RemoteAccessPorts)                                    // Filter to known remote-access ports only
+      | extend ServiceName = case(
+          ExtractedPort == "3389",  "RDP",                                            // Remote Desktop Protocol
+          ExtractedPort == "22",    "SSH",                                            // Secure Shell
+          ExtractedPort == "5900",  "VNC",                                            // Virtual Network Computing
+          ExtractedPort == "5901",  "VNC",
+          ExtractedPort == "5985",  "WinRM-HTTP",                                     // Windows Remote Management
+          ExtractedPort == "5986",  "WinRM-HTTPS",
+          ExtractedPort == "445",   "SMB",                                            // Server Message Block
+          ExtractedPort == "4899",  "Radmin",                                         // Remote Administrator
+          ExtractedPort == "23",    "Telnet",                                         // Unencrypted remote shell
+          "Unknown"
+      )
+      | project
+          Timestamp,
+          DeviceName,
+          AccountName,
+          AccountUpn,
+          ServiceName,                                                                // Human-readable service label
+          ExtractedPort,
+          FirewallCommand   = ProcessCommandLine,
+          InitiatingProcess = InitiatingProcessFileName,                              // What spawned the firewall change
+          InitiatingPath    = InitiatingProcessFolderPath,
+          ProcessHash       = InitiatingProcessSHA256,                                // For TI lookup and exclusion lists
+          IntegrityLevel    = ProcessIntegrityLevel
+      | order by Timestamp desc
+
+relatedHunts:
+  - HL-006
