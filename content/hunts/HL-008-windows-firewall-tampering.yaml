@@ -46,7 +46,7 @@ platforms:
   - Windows
 
 methodology: Behavioural
-maturity: Tuning
+maturity: Validated
 signal: Medium
 
 dataSources:
