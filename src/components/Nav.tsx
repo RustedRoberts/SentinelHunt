@@ -33,9 +33,6 @@ export default function Nav() {
             <span className="text-[#d4ff3f] font-display font-bold text-lg tracking-tight">
               SentinelHunt
             </span>
-            <span className="text-zinc-600 text-xs font-mono uppercase tracking-widest">
-              threat hunting library
-            </span>
           </NavLink>
         </div>
         <div className="flex items-center gap-6">
