@@ -47,26 +47,35 @@ export default function Methodology() {
         <div className="mb-12">
           <h1 className="font-display text-4xl font-bold text-zinc-100 mb-3">Methodology</h1>
           <p className="text-zinc-400 text-lg leading-relaxed">
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. SentinelHunt is a curated library
-            of threat hunting content designed for practitioners who want structured, hypothesis-driven
-            detection development. Every hunt in this library follows a consistent schema and curation
-            philosophy described below.
+            SentinelHunt is a library of threat hunts I've built and curated, written
+            in a consistent YAML schema so each one can be picked up, understood, and
+            run without having to reverse-engineer the author's intent. The hunts here
+            lean heavily on Microsoft Sentinel and Defender for Endpoint telemetry, with
+            a focus on Entra ID identity threats, endpoint behaviour, and lateral movement.
+            Every classification, signal rating, and tuning note on this page exists for one
+            reason: so you can decide whether a hunt fits your environment before you run it.
           </p>
         </div>
 
         <Section title="What Is a Hunt?">
           <Card>
             <p className="text-zinc-300 leading-relaxed mb-4">
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt
-              ut labore et dolore magna aliqua. A hunt in this library is a self-contained artefact
-              combining a detection hypothesis, one or more runnable queries, investigation guidance,
-              and enough context for an analyst to understand what they're looking for and why.
+              A hunt in this library is a self-contained artefact: a detection hypothesis,
+              one or more runnable queries, investigation guidance, and enough context for
+              an analyst to understand what they're looking for and why.
+              Each one is written to be picked up cold and put to use in a single triage session.
+
+              Hunts are not alerts. They are analytical starting points.
+              The goal is to produce a finding worth investigating further,
+              not a high-confidence detection event.
             </p>
             <p className="text-zinc-400 leading-relaxed">
-              Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea
-              commodo consequat. Hunts are not alerts — they are analytical starting points. The goal
-              is to produce a finding worthy of further investigation, not a high-confidence detection
-              event.
+              A good hunt narrows the haystack rather than pointing at a single
+              needle - it should leave you with a manageable result set and clear
+              guidance on how to confirm or rule out each finding.
+              Hunts that consistently produce low-volume, high-fidelity results are
+              candidates for promotion to the analytics layer, but until that point,
+              expect to apply analyst judgement to every result.
             </p>
           </Card>
         </Section>
@@ -166,7 +175,7 @@ export default function Methodology() {
 
         <Section title="Schema Reference">
           <p className="text-zinc-400 mb-4 leading-relaxed">
-            Lorem ipsum dolor sit amet. Each hunt YAML file conforms to a documented schema. The
+            Each hunt YAML file conforms to a documented schema. The
             following fields are defined:
           </p>
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg overflow-hidden">
@@ -212,19 +221,34 @@ export default function Methodology() {
         <Section title="Curation Philosophy">
           <div className="space-y-4 text-zinc-400 leading-relaxed">
             <p>
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
-              incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
-              exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+              Every hunt in this library is held to three principles: it has to be runnable, honest, and maintained.
             </p>
             <p>
-              Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat
-              nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui
-              officia deserunt mollit anim id est laborum.
+              Runnable means the queries work as written against the data sources listed.
+
+              No half-finished implementations, no placeholder table names, no dependencies
+              hidden in the prose. If a hunt needs an external data source (externaldata() calls
+              reaching out over HTTPS, for example) or a specific feature enabled
+              (UEBA IdentityInfo, EntraOps classification data, Defender for Endpoint
+              advanced hunting tables), that requirement is called out in the curator
+              notes - not buried in a comment three-quarters of the way down the query.
+
+              The point is to prevent silent failures the first time someone runs the hunt in their own tenant.
             </p>
             <p>
-              Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque
-              laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi
-              architecto beatae vitae dicta sunt explicabo.
+              Honest means a hunt's limitations are documented as clearly as its strengths. False positives are listed explicitly.
+              Maturity and signal ratings reflect what I've actually seen in the field, not what I'd like them to be.
+              If a hunt only catches a narrow variant of a technique, the hypothesis says so.
+              Where evidence of efficacy is incomplete, the maturity level reflects that - there's no value in a library that overpromises.
+            </p>
+            <p>
+              Maintained means I revisit hunts periodically to update them based on new intelligence, feedback from the field, and changes in the threat landscape.
+              If a hunt becomes obsolete due to changes in attacker TTPs or platform telemetry, I'll mark it as such and archive it.
+              If a hunt can be improved with new data sources or refined queries, I'll make those updates and bump the maturity level accordingly.
+              The goal is to keep this library evergreen and relevant, not a static snapshot of my knowledge at a single point in time.
+            </p>
+            <p>
+              This curation philosophy ensures that every hunt in the library is a reliable tool for analysts, providing them with the confidence to use these queries in their own environments.
             </p>
           </div>
         </Section>
