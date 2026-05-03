@@ -60,8 +60,10 @@ export default function TacticStrip({ hunts, activeTactic, onTacticClick }: Tact
                 isActive ? 'bg-[#d4ff3f]' : hasCoverage ? 'bg-zinc-500' : 'bg-zinc-700',
               ].join(' ')}
             />
-            <span className="text-center leading-tight font-medium" style={{ fontSize: '0.65rem' }}>
-              {tactic}
+            <span className="flex items-end justify-center min-h-[2rem]">
+              <span className="text-center leading-tight font-medium" style={{ fontSize: '0.65rem' }}>
+                {tactic}
+              </span>
             </span>
             {hasCoverage && (
               <span className={['font-mono', isActive ? 'text-[#d4ff3f]' : 'text-zinc-500'].join(' ')}>
