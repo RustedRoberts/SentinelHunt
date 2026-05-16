@@ -1,0 +1,352 @@
+id: HL-XXX
+title: Microsoft Defender for Endpoint Enforcement Posture and Protection Gap Hunting
+summary: >
+  Surfaces every blocking or enforcement action taken by Microsoft Defender for Endpoint
+  across the estate - ASR rules, Controlled Folder Access, Device Control, Exploit
+  Protection, Network/Web Protection and SmartScreen, Tamper Protection, MDAV, PUA, and
+  WDAC/AppLocker - by normalising raw `DeviceEvents` ActionType values into a single
+  `MDEMeasure` capability dimension. It is designed to answer two questions: "is Defender
+  actually enforcing, consistently, everywhere it should be?" (control assurance) and
+  "where is a high-severity prevention firing, or conspicuously absent?" (threat lead).
+hypothesis: |
+  Microsoft Defender for Endpoint records its preventive actions in the `DeviceEvents`
+  Advanced Hunting table, with the specific capability encoded in the `ActionType` column
+  and supporting context in the JSON `AdditionalFields` column. There is no single field
+  that says "Defender blocked something" - the same logical outcome is spread across
+  dozens of capability-specific ActionType strings (`Asr*Blocked`, `Asr*WarnBypassed`,
+  `ControlledFolderAccessViolationBlocked`, `ExploitGuard*Blocked/Enforced`,
+  `ControlFlowGuardViolation`, `TamperingAttempt`, `Antivirus*`, `AppControl*Blocked`,
+  `AppLockerBlock*`, etc.). This fragmentation creates two distinct hunting opportunities.
+
+  First, as a control-assurance / baseline hunt: an environment in which a control is
+  configured should produce a steady stream of the corresponding ActionType values. A
+  tenant or device cohort that produces zero events for a control that is supposed to be
+  enforced (e.g. no `AsrLsassCredentialTheftBlocked` anywhere despite the rule being in
+  scope) indicates a coverage gap, a misconfiguration, or - in the worst case - an
+  adversary who has impaired the control (MITRE T1562.001), which MITRE's own M1047
+  mitigation explicitly recommends auditing for by confirming tools are functioning.
+
+  Second, as a focused detection hunt: a subset of these ActionType values are
+  high-fidelity adversary indicators in their own right. `AsrLsassCredentialTheftBlocked`
+  is Defender stopping a credential-dumping attempt against LSASS (the prevention-side
+  counterpart to endpoint hunts that look for the access attempt itself).
+  `TamperingAttempt` is a direct signal of T1562.001 against Defender itself. A sudden
+  spike, a first-ever appearance on a device, or a rare ActionType
+  (`AsrVulnerableSignedDriverBlocked`, `AsrWebShellOnServerBlocked`) is a lead worth
+  pulling regardless of overall volume.
+
+  The normalisation logic relies on the KQL `case()` operator, which evaluates predicates
+  in order and returns on first match - predicate ordering is therefore load-bearing, and
+  any change to the branch order changes the classification of overlapping ActionType
+  values.
+author: RustedRoberts
+updated: "2026-05-16"
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# ATT&CK mapping
+# ---------------------------------------------------------------------------
+# Note: this hunt aggregates many controls. The two mappings below reflect the
+# hunt's PRIMARY analytic value: T1562.001 covers the Tamper Protection signal
+# and the "control is silently absent" baseline finding; T1003.001 covers the
+# headline detection variant (LSASS credential-theft prevention). Individual
+# ActionType leads may map to other techniques on a case-by-case basis.
+tactics:
+  - Defense Evasion
+  - Credential Access
+
+techniques:
+  - id: T1562.001
+    name: "Impair Defenses: Disable or Modify Tools"
+  - id: T1003.001
+    name: "OS Credential Dumping: LSASS Memory"
+
+# ---------------------------------------------------------------------------
+# Scope
+# ---------------------------------------------------------------------------
+platforms:
+  - Windows Endpoint
+  - Windows Server
+
+methodology: Behavioural          # Baseline/assurance variant is closer to Anomaly
+                                  # (deviation from expected enforcement volume); the
+                                  # focused variant is Signature (specific ActionType
+                                  # values are themselves the indicator).
+maturity: Tuning                  # Honest assessment: the raw classification is sound,
+                                  # but the anomaly thresholds (what counts as a
+                                  # "gap" or a "spike") are environment-specific and
+                                  # not yet calibrated. Not Production until baselined.
+signal: Medium                    # The aggregate volume is high and largely benign
+                                  # enforcement noise; the actionable signal lives in
+                                  # the deltas and absences, so per-row signal is
+                                  # Medium, not High.
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: AlertInfo
+    required: false                # Used by the Tamper Protection corroboration step
+                                   # and to catch detections not represented as a
+                                   # DeviceEvents ActionType.
+
+# ---------------------------------------------------------------------------
+# Detection detail
+# ---------------------------------------------------------------------------
+whatYoullSee: |
+  Baseline / assurance variant: a per-tenant, per-capability tally. In a healthy
+  multi-tenant estate every actively-managed tenant produces non-zero counts for the
+  controls it has enabled. Real-world reference distribution (one MSSP, single run)
+  showed `TamperProtection / TamperingAttempt` and
+  `Network_Web_SmartScreen / ExploitGuardNetworkProtectionBlocked` dominating volume
+  (tens to hundreds of thousands), with `AsrLsassCredentialTheftBlocked` consistently
+  present in the thousands-to-tens-of-thousands range for most tenants. The hunting
+  signal is the EXCEPTION to that shape:
+    * A tenant with zero `AsrLsassCredentialTheftBlocked` while peers show thousands
+      (observed: two tenants with no LSASS-theft prevention events at all) - likely the
+      ASR rule is unconfigured, in Audit-only mode, or impaired.
+    * A tenant with zero `TamperProtection` events - Tamper Protection may be disabled.
+    * A rare, low-count ActionType that only appears for one tenant
+      (`AsrVulnerableSignedDriverBlocked`, `AsrAbusedSystemToolBlocked`) - a genuine
+      lead, not noise, because the behaviour is uncommon.
+
+  Focused detection variant: individual rows of high-severity ActionType values with
+  device, account, file and `AdditionalFields` context. A true positive looks like a
+  cluster of `AsrLsassCredentialTheftBlocked` on a single device in a short window,
+  often alongside `ExploitGuardWin32SystemCallBlocked` or AV detections on the same
+  host - the shape of a tool being run repeatedly while the operator adjusts it to
+  evade the control.
+
+# ---------------------------------------------------------------------------
+# Triage and investigation
+# ---------------------------------------------------------------------------
+investigationSteps:
+  - "Run the baseline implementation across the full lookback. Pivot the result by
+    TenantId x MDEMeasure and identify (a) tenants missing a capability entirely and
+    (b) capability/ActionType combinations with anomalously high or low counts versus
+    the tenant's own history and versus peer tenants."
+  - "For any MISSING high-value control (no AsrLsassCredentialTheftBlocked, no
+    TamperingAttempt): confirm whether the control is configured at all (ASR policy
+    state, Tamper Protection state in the security settings) before treating it as a
+    threat. A configuration gap is the most common explanation and should be ruled out
+    first - but a control that was previously firing and has gone silent is a
+    T1562.001 lead, not a config gap."
+  - "For the focused detection variant, isolate the device(s) producing the
+    high-severity ActionType. Pull DeviceName, the initiating process, file hash, and
+    the parsed AdditionalFields for each event. Establish whether the events cluster on
+    one host in a tight window (active intrusion shape) or are scattered and isolated
+    (routine enforcement)."
+  - "Cross-reference AlertInfo for the same DeviceName and time window
+    (ServiceSource == \"Microsoft Defender for Endpoint\"). A corroborating alert
+    raises confidence; its absence on a clustered prevention burst is itself notable."
+  - "For TamperingAttempt specifically: parse AdditionalFields to identify the
+    initiating process. Expect benign noise from svchost.exe (e.g. -k GPSvcGroup) and
+    management tooling (Intune, ConfigMgr, GPO). An interactive process, an unsigned
+    binary, or a user-context PowerShell/cmd parent is the malicious shape."
+  - "Check for credential-reuse follow-on within ~30 minutes of any
+    AsrLsassCredentialTheftBlocked cluster - new network logons from the affected host
+    using accounts not previously seen there - indicating the operator obtained
+    material despite the block or via a parallel path. (See related hunt for the
+    endpoint-side LSASS access detection.)"
+  - "Document the outcome per tenant: configuration gap (raise as posture finding),
+    benign enforcement (baseline it out), or confirmed/suspected intrusion (escalate
+    per IR procedure and preserve host)."
+
+falsePositives:
+  - "High aggregate volume is expected and benign for TamperProtection,
+    ExploitGuardNetworkProtectionBlocked, and AsrLsassCredentialTheftBlocked - these
+    are routine enforcement, not incidents. Volume alone is not a finding."
+  - "TamperingAttempt is frequently generated by legitimate management plane activity:
+    svchost.exe (GPO service), Intune, Configuration Manager, and other tooling that
+    attempts to apply Defender settings blocked by Tamper Protection."
+  - "A tenant showing zero events for a capability is very often a configuration state
+    (control not deployed, or Audit-only) rather than impairment. This must be
+    confirmed against policy state before being treated as an adversary action."
+  - "ExploitGuardAcgEnforced / ExploitGuardWin32SystemCallBlocked can be driven in
+    volume by specific line-of-business applications that trip exploit-protection
+    mitigations; these produce stable, per-application baselines."
+  - "PUA classification via an AdditionalFields substring match can over- or
+    under-attribute borderline detections; treat the MDAV vs PUA split as indicative,
+    not authoritative (see curator notes)."
+
+# ---------------------------------------------------------------------------
+# Curator notes
+# ---------------------------------------------------------------------------
+curatorNotes: |
+  Provenance: the classification logic is adapted from Kostas Koutroumpouchos'
+  "Getting to know MDE Part 2" (kostaskoutrou.github.io, 2026-01-06). The original
+  query is a single-device assurance check; this hunt generalises it to an estate-wide
+  posture/gap hunt and adds a focused detection variant.
+
+  Changes applied versus the source query (Implementation 1, "improved"):
+    1. Operator precedence: the ExploitProtection branch in the source reads
+       `(... ) and ActionType !contains "NetworkProtection" or ActionType ==
+       "ControlFlowGuardViolation"`. KQL has no precedence that matches the visual
+       bracketing - it evaluates as `((A and B and C) or D)`. This is ACCIDENTALLY
+       correct for the source data (CFG genuinely is Exploit Protection) but is a
+       latent trap for the next editor. Explicit parentheses now wrap the entire
+       ControlFlowGuardViolation clause so intent is unambiguous.
+    2. The single-device `DeviceId` filter is parameterised and commented out by
+       default so the query runs estate-wide; uncomment for per-device drilldown.
+    3. ASR Audited events are added as an OPTIONAL toggle (commented). Audited-but-not-
+       blocked ASR is a useful posture signal (rule is in Audit mode, not Block) and
+       feeds the "is this control actually enforcing?" question.
+    4. Summarisation is by TenantId as well as MDEMeasure/ActionType so
+       the result is directly pivotable for the cross-tenant gap analysis the hunt
+       depends on.
+
+  Known limitation (carried over, NOT fixed): the MDAV vs PUA split uses
+  `tostring(AdditionalFields) contains "PUA"`, a substring match against the whole
+  serialised JSON blob. This is deliberately retained because it is strictly better
+  than Microsoft's documented `"PUA:"` match (which misses PUABundler and similar),
+  but it remains a blob match, not a parsed field, and can mis-split borderline cases.
+  Documented in falsePositives. A future version should parse the relevant
+  AdditionalFields key explicitly.
+
+  External dependency: no `externaldata()` or outbound calls - this hunt is
+  self-contained against MDE Advanced Hunting tables and has no UEBA or enrichment
+  prerequisite. AlertInfo is optional enrichment only.
+
+  Promotion criteria (to move from Tuning to Production): per-tenant baselines must be
+  established for the high-volume capabilities so that "anomalous" can be defined
+  numerically, and the per-tenant control-configuration state must be available so the
+  "missing control" finding can distinguish config gap from impairment automatically.
+
+# ---------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------
+references:
+  - label: "Kostas SecBlog - Using KQL to identify detections from MDE (Getting to know MDE Part 2)"
+    url: https://kostaskoutrou.github.io/2026/01/06/using-kql-for-mde.html
+  - label: "MITRE ATT&CK - Impair Defenses: Disable or Modify Tools (T1562.001)"
+    url: https://attack.mitre.org/techniques/T1562/001/
+  - label: "MITRE ATT&CK - OS Credential Dumping: LSASS Memory (T1003.001)"
+    url: https://attack.mitre.org/techniques/T1003/001/
+  - label: "Microsoft - Defender for Endpoint documentation"
+    url: https://learn.microsoft.com/en-gb/defender-endpoint/
+  - label: "Microsoft - Attack surface reduction rules reference (ASR rule to GUID matrix)"
+    url: https://learn.microsoft.com/en-gb/defender-endpoint/attack-surface-reduction-rules-reference
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+implementations:
+  # -------------------------------------------------------------------------
+  # Implementation 1 - BASELINE / CONTROL-ASSURANCE (improved, recommended)
+  # Estate-wide enforcement posture. Pivot the output by TenantId x
+  # MDEMeasure to find missing controls, gaps, and anomalous volumes.
+  # -------------------------------------------------------------------------
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      DeviceEvents
+      | where Timestamp > ago(30d)
+      // --- Optional per-device drilldown: uncomment and set DeviceId ---------
+      // | where DeviceId == "<Enter Device ID here>"
+      // ----------------------------------------------------------------------
+      | extend MDEMeasure = case(
+            // ASR rules. Source counts only Blocked/WarnBypassed (enforcing).
+            // To also surface Audit-mode rules (posture signal: rule is NOT
+            // blocking), uncomment the Audited branch below.
+            ActionType startswith "Asr"
+              and (ActionType endswith "Blocked" or ActionType endswith "WarnBypassed"),
+              "ASRRules",
+            // ActionType startswith "Asr" and ActionType endswith "Audited",
+            //   "ASRRules_AuditOnly",
+            ActionType == "ControlledFolderAccessViolationBlocked",
+              "CFA",
+            ActionType in ("BluetoothPolicyTriggered", "PnPDeviceBlocked",
+                           "PrintJobBlocked", "RemovableStorageFileEvent",
+                           "RemovableStoragePolicyTriggered"),
+              "DeviceControl",   // some of these are policy-triggered, not strictly
+                                 // a block - parse AdditionalFields to confirm intent
+            // Exploit Protection. Network Protection is a separate ASR and is
+            // routed to Network_Web_SmartScreen below, so it is excluded here.
+            // FIX: the whole ControlFlowGuardViolation clause is now explicitly
+            // parenthesised so the case() predicate cannot be misread/misedited.
+            (
+              (ActionType startswith "ExploitGuard"
+                and (ActionType endswith "Enforced" or ActionType contains "Blocked")
+                and ActionType !contains "NetworkProtection")
+              or (ActionType == "ControlFlowGuardViolation")
+            ),
+              "ExploitProtection",
+            ActionType in ("ExploitGuardNetworkProtectionBlocked",
+                           "SmartScreenExploitWarning", "SmartScreenUrlWarning",
+                           "SmartScreenAppWarning", "SmartScreenUserOverride"),
+              "Network_Web_SmartScreen",
+            ActionType contains "tamper",
+              "TamperProtection",
+            ActionType in ("AntivirusDetection", "AntivirusError",
+                           "AntivirusMalwareActionFailed", "AntivirusMalwareBlocked")
+              and tostring(AdditionalFields) !contains "PUA",
+              "MDAV",
+            ActionType == "AntivirusDetection"
+              and tostring(AdditionalFields) contains "PUA",
+              "PUA",
+            (ActionType startswith "AppControl" or ActionType startswith "AppLocker")
+              and ActionType contains "block",
+              "WDAC_AppLocker",
+            "NonMDE")
+      | where MDEMeasure != "NonMDE"
+      // Aggregate by tenant so the result is directly pivotable for the
+      // cross-tenant gap / anomaly analysis this hunt depends on.
+      | summarize count() by TenantId, MDEMeasure, ActionType
+      | order by TenantId asc, MDEMeasure asc, count_ desc
+
+  # -------------------------------------------------------------------------
+  # Implementation 2 - FOCUSED DETECTION VARIANT
+  # High-severity ActionType values treated as individual leads, with the
+  # device / process / AdditionalFields context needed to triage a single row.
+  # -------------------------------------------------------------------------
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      DeviceEvents
+      | where Timestamp > ago(7d)
+      // High-fidelity, adversary-indicative ActionType values. Tune this set
+      // to local risk appetite; these are the ones worth pulling per-row.
+      | where ActionType in (
+            "AsrLsassCredentialTheftBlocked",     // T1003.001 prevention
+            "AsrWebShellOnServerBlocked",         // server webshell creation
+            "AsrVulnerableSignedDriverBlocked",   // BYOVD
+            "AsrAbusedSystemToolBlocked",         // LOLBin abuse
+            "AsrUntrustedExecutableBlocked",
+            "ExploitGuardNonMicrosoftSignedBlocked"
+        )
+        or ActionType contains "tamper"           // T1562.001 against Defender
+      | extend Parsed = parse_json(AdditionalFields)
+      | project
+            Timestamp,
+            TenantId,
+            DeviceName,
+            ActionType,
+            InitiatingAccountName = InitiatingProcessAccountName,
+            InitiatingProcess     = InitiatingProcessFileName,
+            InitiatingProcessPath = InitiatingProcessFolderPath,
+            InitiatingProcessCmd  = InitiatingProcessCommandLine,
+            ProcessSHA256         = InitiatingProcessSHA256,
+            AdditionalContext     = Parsed
+      // Surface clusters: same device + same ActionType firing repeatedly in a
+      // short window is the active-intrusion shape, not routine enforcement.
+      | summarize
+            EventCount   = count(),
+            FirstSeen    = min(Timestamp),
+            LastSeen     = max(Timestamp),
+            Accounts     = make_set(InitiatingAccountName, 10),
+            Processes    = make_set(InitiatingProcess, 10)
+          by TenantId, DeviceName, ActionType
+      | where EventCount >= 3
+      | order by EventCount desc
+
+# ---------------------------------------------------------------------------
+# Related hunts
+# ---------------------------------------------------------------------------
+relatedHunts:
+  - HL-003   # LSASS Memory Access for Credential Dumping - endpoint-side
+             # detection of the access attempt that AsrLsassCredentialTheftBlocked
+             # is the prevention-side counterpart to.
