@@ -1,0 +1,244 @@
+id: HL-XXX
+title: Microsoft Defender Tampering via PowerShell and Registry Modification
+summary: >
+  Detects attempts to weaken or disable Microsoft Defender for Endpoint using PowerShell
+  configuration cmdlets (Add-MpPreference / Set-MpPreference) and direct registry
+  modification of Defender control keys. Covers exclusion abuse (process and path),
+  real-time protection and tamper-protection disablement, and service-start manipulation.
+  Each detection emits a classified method label so analysts can triage by tampering
+  technique rather than by raw query hit.
+hypothesis: |
+  Before deploying further tooling, adversaries frequently degrade endpoint protection to
+  reduce the chance of detection. On Windows hosts running Microsoft Defender, two
+  high-signal paths dominate in practice:
+
+  1. PowerShell configuration abuse. The Defender PowerShell module exposes Add-MpPreference
+     and Set-MpPreference. Attackers use ExclusionProcess / ExclusionPath to carve out a
+     blind spot for their payload, or use the disable switches (DisableRealtimeMonitoring,
+     DisableIOAVProtection, DisableBehaviorMonitoring, DisableScriptScanning,
+     DisableArchiveScanning) to turn protection components off wholesale. These appear in
+     DeviceProcessEvents as a powershell.exe or pwsh.exe process whose command line
+     contains the cmdlet and the relevant parameter token.
+
+  2. Registry modification. The same outcomes can be achieved by writing Defender control
+     values directly: TamperProtection set to 0, DisableAntiSpyware set to 1,
+     DisableRealtimeMonitoring set to 1, the WinDefend service Start value set to 3 (manual)
+     or 4 (disabled), or neutralising the SecurityHealth startup entry. These appear in
+     DeviceRegistryEvents and are often performed by reg.exe, a script, or a native LOLBin
+     rather than the Defender module.
+
+  Both paths are legitimately used by administrators and management tooling (Intune, GPO,
+  Configuration Manager, AV migration), so the value of this hunt is in the per-method
+  classification and the false-positive guidance rather than the raw hit alone. A
+  classified hit with no corresponding change ticket, originating from a user context or
+  an unexpected parent process, is a strong indicator of hands-on-keyboard defence evasion.
+author: RustedRoberts
+updated: "2026-05-16"
+version: "1.0"
+
+tactics:
+  - Defense Evasion
+
+techniques:
+  - id: T1562.001
+    name: "Impair Defenses: Disable or Modify Tools"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Experimental
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceRegistryEvents
+    required: true
+
+whatYoullSee: |
+  PowerShell path - a DeviceProcessEvents record where FileName is powershell.exe or
+  pwsh.exe and ProcessCommandLine contains Add-MpPreference or Set-MpPreference together
+  with either an exclusion parameter (ExclusionProcess, ExclusionPath, ExclusionExtension)
+  or a disable switch (DisableRealtimeMonitoring, DisableIOAVProtection,
+  DisableBehaviorMonitoring, DisableScriptScanning, DisableArchiveScanning). A true
+  positive typically runs from a user or unexpected parent process (Office app, scripting
+  host, remote-exec tooling), adds an exclusion that matches the attacker payload path,
+  and is not preceded by an approved change record.
+
+  Registry path - a DeviceRegistryEvents record where a Defender control value is written
+  to its tampering state: TamperProtection = 0, DisableAntiSpyware = 1,
+  DisableRealtimeMonitoring = 1, the WinDefend service Start value = 3 or 4, or the
+  SecurityHealth StartupApproved\Run value beginning with the disabled-state byte pattern.
+  Malicious instances are usually isolated, host-local, performed outside a maintenance
+  window, and not accompanied by the broad fleet-wide pattern that a policy push produces.
+
+  The MethodDetail column on each row tells you which specific tampering action fired,
+  so you can triage exclusion abuse, protection disablement, and service/registry
+  manipulation as distinct workstreams.
+
+investigationSteps:
+  - "Read the MethodDetail value first. It tells you the exact tampering action (exclusion
+    add, real-time protection disable, tamper protection disable, service start change,
+    etc.) and shapes every subsequent step."
+  - "For PowerShell hits, extract the full ProcessCommandLine. If an exclusion was added,
+    note the excluded path or process - does it correspond to a suspicious binary, a
+    temp/staging directory, or a user-writable location? An exclusion pointing at
+    C:\\Users\\...\\AppData or C:\\ProgramData is high-interest."
+  - "Establish the parent process via InitiatingProcessFileName and the process tree. A
+    chain ending in an Office application, wscript/cscript, mshta, a remote-exec service,
+    or an interactive cmd/powershell under a standard user is a strong malicious indicator.
+    A chain rooted in an Intune/SCCM/GPO agent is likely benign."
+  - "Correlate against change management. Is there an approved change record or maintenance
+    window covering this host and time? Absence of a ticket for a protection-disabling
+    action materially raises severity."
+  - "Determine scope. Query the same MethodDetail across the fleet for the surrounding
+    window. A single host or a small cluster is consistent with targeted tampering;
+    simultaneous fleet-wide change is consistent with a policy deployment."
+  - "Pivot on the actor. For the AccountName and DeviceName involved, look for adjacent
+    activity within +/- 1 hour: payload execution from an excluded path, new persistence,
+    credential access, or lateral movement. Defender tampering is rarely the end goal."
+  - "If malicious, capture the current Defender configuration (Get-MpPreference,
+    Get-MpComputerStatus) for evidence, then isolate the host per IR procedure and revert
+    the tampering."
+
+falsePositives:
+  - "Endpoint management platforms (Microsoft Intune, Configuration Manager, Group Policy)
+    pushing Defender configuration or exclusions as policy - typically fleet-wide and
+    correlated with the management agent as the initiating process."
+  - "Approved administrative scripting that adds legitimate performance exclusions for
+    line-of-business applications, database files, or build/CI working directories."
+  - "Third-party AV or EDR migration and co-existence tooling that disables Defender
+    components by design as part of a controlled switchover."
+  - "Backup, imaging, and software-deployment solutions that toggle real-time protection
+    around large file operations."
+  - "Security and IT teams running deliberate detection-validation or red-team exercises -
+    confirm against the test schedule before escalating."
+
+curatorNotes: |
+  Status: Tuning. The PowerShell implementation deliberately anchors on FileName matching
+  powershell.exe / pwsh.exe per the library decision for this hunt. This is a known and
+  accepted limitation: it does NOT catch renamed PowerShell binaries, unmanaged-runspace
+  hosts that load System.Management.Automation.dll without the standard image name, or
+  non-PowerShell tampering paths (sc.exe stop WinDefend, MpCmdRun.exe abuse, WMI/CIM,
+  SystemSettingsAdminFlows.exe, direct API). Treat the PowerShell query as covering the
+  PowerShell-driven subset only, not the full T1562.001 surface. A stricter command-line-
+  anchored or AMSI/script-block variant is a candidate follow-up hunt if evasion via
+  renamed binaries is observed in the environment.
+
+  The registry implementation is higher fidelity and closer to production maturity than
+  the PowerShell one - the main tuning burden there is suppressing legitimate Intune/GPO
+  policy pushes by correlating with the initiating management process and fleet-wide
+  timing, rather than by suppressing the registry path itself.
+
+  The SecurityHealth StartupApproved\\Run check matches on the leading byte pattern
+  "03 00 00 00", which indicates a disabled startup entry. Registry binary value
+  rendering can vary between MDE schema versions; validate the RegistryValueData format
+  in your tenant and adjust the startswith predicate if your data presents the value
+  without spaces or with a different prefix.
+
+  Both implementations are scoped to the last 24 hours for interactive hunting. Widen the
+  ago() window for retrospective sweeps after a confirmed incident.
+
+references:
+  - label: "MITRE ATT&CK: Impair Defenses - Disable or Modify Tools (T1562.001)"
+    url: https://attack.mitre.org/techniques/T1562/001/
+  - label: "Microsoft Learn: Set-MpPreference (Defender PowerShell module)"
+    url: https://learn.microsoft.com/en-us/powershell/module/defender/set-mppreference
+  - label: "Microsoft Learn: Add-MpPreference (Defender PowerShell module)"
+    url: https://learn.microsoft.com/en-us/powershell/module/defender/add-mppreference
+  - label: "Microsoft Learn: Protect security settings with tamper protection"
+    url: https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ----------------------------------------------------------------------
+      // Implementation 1 of 2: PowerShell-driven Defender tampering
+      // Anchored on PowerShell image name by design (see curatorNotes for the
+      // accepted evasion limitation). Classifies exclusion abuse vs component
+      // disablement via the MethodDetail column.
+      // ----------------------------------------------------------------------
+      DeviceProcessEvents
+      | where Timestamp > ago(1d)
+      // PowerShell 5.x (powershell.exe) and PowerShell 7+ (pwsh.exe)
+      | where FileName in~ ("powershell.exe", "pwsh.exe")
+      // Defender configuration cmdlets
+      | where ProcessCommandLine has_any ("Add-MpPreference", "Set-MpPreference")
+      // Either an exclusion is being added, or a protection component is being disabled
+      | where ProcessCommandLine has_any (
+              "ExclusionProcess", "ExclusionPath", "ExclusionExtension",
+              "DisableRealtimeMonitoring", "DisableIOAVProtection",
+              "DisableBehaviorMonitoring", "DisableScriptScanning",
+              "DisableArchiveScanning")
+      // Classify the specific tampering method for analyst triage
+      | extend MethodDetail = case(
+              ProcessCommandLine has "ExclusionProcess",            "Exclusion added: process",
+              ProcessCommandLine has "ExclusionPath",               "Exclusion added: path",
+              ProcessCommandLine has "ExclusionExtension",          "Exclusion added: extension",
+              ProcessCommandLine has "DisableRealtimeMonitoring",   "Component disabled: real-time monitoring",
+              ProcessCommandLine has "DisableIOAVProtection",       "Component disabled: IOAV (downloaded files)",
+              ProcessCommandLine has "DisableBehaviorMonitoring",   "Component disabled: behaviour monitoring",
+              ProcessCommandLine has "DisableScriptScanning",       "Component disabled: script scanning",
+              ProcessCommandLine has "DisableArchiveScanning",      "Component disabled: archive scanning",
+              "Defender configuration change (uncategorised)")
+      | extend MethodClass = "PowerShell cmdlet"
+      | project
+          Timestamp,
+          DeviceName,
+          AccountName,
+          MethodClass,
+          MethodDetail,
+          FileName,
+          ProcessCommandLine,
+          InitiatingProcessFileName,
+          InitiatingProcessFolderPath,
+          InitiatingProcessAccountName,
+          InitiatingProcessSHA256
+      | order by Timestamp desc
+
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ----------------------------------------------------------------------
+      // Implementation 2 of 2: Registry-based Defender tampering
+      // Higher fidelity than Implementation 1. Classifies the specific
+      // Defender control value being written via MethodDetail.
+      // ----------------------------------------------------------------------
+      DeviceRegistryEvents
+      | where Timestamp > ago(1d)
+      | where (RegistryKey endswith @"\Windows Defender\Features\TamperProtection" and RegistryValueData == "0")
+           or (RegistryKey endswith @"\Windows Defender\DisableAntiSpyware" and RegistryValueData == "1")
+           or (RegistryKey endswith @"\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring" and RegistryValueData == "1")
+           or (RegistryKey endswith @"\Services\WinDefend\Start" and RegistryValueData in ("3", "4"))
+           or (RegistryKey endswith @"\StartupApproved\Run\SecurityHealth" and RegistryValueData startswith "03 00 00 00")
+      // Classify the specific registry tampering method for analyst triage
+      | extend MethodDetail = case(
+              RegistryKey endswith @"\Windows Defender\Features\TamperProtection",                    "Tamper protection disabled (TamperProtection=0)",
+              RegistryKey endswith @"\Windows Defender\DisableAntiSpyware",                           "Antispyware disabled (DisableAntiSpyware=1)",
+              RegistryKey endswith @"\Windows Defender\Real-Time Protection\DisableRealtimeMonitoring", "Real-time monitoring disabled (DisableRealtimeMonitoring=1)",
+              RegistryKey endswith @"\Services\WinDefend\Start",                                       strcat("WinDefend service start changed (Start=", RegistryValueData, ")"),
+              RegistryKey endswith @"\StartupApproved\Run\SecurityHealth",                             "SecurityHealth startup entry disabled",
+              "Defender registry change (uncategorised)")
+      | extend MethodClass = "Registry modification"
+      | project
+          Timestamp,
+          DeviceName,
+          MethodClass,
+          MethodDetail,
+          RegistryKey,
+          RegistryValueName,
+          RegistryValueData,
+          PreviousRegistryValueData,
+          InitiatingProcessFileName,
+          InitiatingProcessFolderPath,
+          InitiatingProcessAccountName,
+          InitiatingProcessCommandLine,
+          InitiatingProcessSHA256
+      | order by Timestamp desc
+
+relatedHunts:
+  - HL-011
