@@ -1,4 +1,4 @@
-id: HL-XXX
+id: HL-012
 title: Microsoft Defender Tampering via PowerShell and Registry Modification
 summary: >
   Detects attempts to weaken or disable Microsoft Defender for Endpoint using PowerShell
