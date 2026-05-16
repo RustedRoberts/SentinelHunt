@@ -1,0 +1,413 @@
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+id: HL-010
+title: Dynamic Multi-Factor Sign-In Risk Score
+summary: >
+  Computes a transparent, additive risk score for every interactive Entra ID
+  sign-in by comparing it against a 30-day per-user behavioural baseline.
+  Factors scored independently and summed: geolocation familiarity, device
+  trust and familiarity, time-of-day deviation, target application
+  sensitivity, network trust, and Entra-native risk corroboration. The score
+  surfaces credential-compromise sessions that individually look benign but
+  are collectively anomalous, without relying on the opaque Identity
+  Protection model alone.
+hypothesis: |
+  An attacker using valid but stolen credentials (T1078.004) rarely
+  reproduces the legitimate owner's full behavioural envelope at once. They
+  typically authenticate from an unfamiliar country, on a never-before-seen
+  device, outside the user's usual working hours, from an untrusted network
+  — but each of these in isolation also occurs benignly (travel, a new
+  laptop, late working, tethered hotspot).
+
+  No single signal is reliable, but their *coincidence within one session*,
+  weighted and summed, separates compromise from noise. This hunt builds a
+  per-user baseline over a 30-day lookback from `SigninLogs` — the set of
+  countries and device IDs the user has demonstrably used, plus the
+  named/trusted networks — then scores each new successful sign-in against
+  that baseline. Time-of-day is scored separately against a fixed working
+  window in UK local time rather than a per-user hour baseline (a
+  deliberate simplification — see curatorNotes). Entra-native fields
+  (`riskLevelDuringSignIn`, `riskState`, `riskEventTypes`) are carried
+  alongside the locally computed score for corroboration rather than as
+  the primary signal, since the
+  native model is not analyst-tunable.
+
+  Device trust is graded, not binary: a managed + compliant device scores as
+  trusted; a previously-seen device with no compliance data is treated as
+  neutral (NOT untrusted); only a brand-new, unseen device scores as
+  high-risk. This deliberately avoids penalising the tenant's mixed
+  Intune/compliance coverage, where a legitimate unenrolled device is
+  otherwise indistinguishable from an attacker device.
+author: RustedRoberts
+updated: "2026-05-16"
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# ATT&CK mapping
+# ---------------------------------------------------------------------------
+tactics:
+  - Initial Access
+  - Defense Evasion
+
+techniques:
+  - id: T1078.004
+    name: "Valid Accounts: Cloud Accounts"
+  - id: T1078
+    name: "Valid Accounts"
+
+# ---------------------------------------------------------------------------
+# Scope
+# ---------------------------------------------------------------------------
+platforms:
+  - Azure AD / Entra ID
+
+methodology: Behavioural
+maturity: Experimental
+signal: Medium
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+dataSources:
+  - product: Microsoft Entra ID
+    table: SigninLogs
+    required: true
+
+# ---------------------------------------------------------------------------
+# Detection detail
+# ---------------------------------------------------------------------------
+whatYoullSee: |
+  A true positive is a successful interactive sign-in whose summed score
+  lands in the High or Critical band because several independent factors
+  fire together for the same session:
+
+  - `Location` resolves to a country the user has not signed in from in the
+    prior 30 days (+30).
+  - `DeviceDetail.deviceId` is empty or not in the user's 30-day device set,
+    i.e. a brand-new device (+25). A previously-seen but non-compliant
+    device scores 0 here by design.
+  - The sign-in falls outside the fixed working window (07:00–19:00 UK
+    local time by default) (+15).
+  - The target application (`AppDisplayName` / `ResourceDisplayName`) is on
+    the sensitive-app watchlist — Azure portal, Graph, admin consoles (+15).
+  - The network is not an Entra trusted/named location
+    (`NetworkLocationDetails` lacks `trustedNamedLocation`) (+10).
+  - Entra's own `riskLevelDuringSignIn` is medium/high, corroborating the
+    locally computed score (+15).
+
+  The distinguishing cue is *clustering*: a benign new-country sign-in is
+  usually from a known device during normal hours to a low-sensitivity app
+  (score stays Low/Medium). Compromise tends to light up location + new
+  device + odd hour + sensitive target simultaneously, pushing the band to
+  High/Critical. Analysts should read the per-factor breakdown, never the
+  total alone.
+
+# ---------------------------------------------------------------------------
+# Triage and investigation
+# ---------------------------------------------------------------------------
+investigationSteps:
+  - "Read the score breakdown, not the total: `ScoreReasons` is a dynamic
+    array of the factors that fired (e.g. `[\"New-Country(+30)\",
+    \"Unseen-Device(+25)\"]`). Inspect array length and contents — a score
+    driven by a single element (e.g. only `New-Country`) is usually benign
+    travel and can be deprioritised; a score spread across location +
+    device + hour + sensitive-app is high-fidelity. The array can be
+    expanded with `mv-expand` for per-factor aggregation across many
+    sign-ins."
+  - "Validate the location: is the resolved country plausible for this
+    user? Cross-check `AuthenticationDetails` for impossible travel against
+    the user's previous sign-in in `SigninLogs` within the last few hours
+    (a London sign-in followed 40 minutes later by a Lagos sign-in is
+    decisive)."
+  - "Inspect the device: note `DeviceDetail.deviceId`, `displayName`,
+    `operatingSystem`, `isCompliant`, `isManaged`. A null deviceId on a
+    web sign-in is common and not alone conclusive — weigh it with the
+    other factors rather than treating absence of data as malicious."
+  - "Check the conditional access and MFA outcome: did the session satisfy
+    MFA (`AuthenticationRequirement`, `ConditionalAccessStatus`)? A
+    high-score sign-in that bypassed or failed MFA is materially more
+    serious than one that fully satisfied a strong CA policy."
+  - "Pivot to post-authentication activity: if the target app is sensitive,
+    query `AuditLogs` and `CloudAppEvents` for actions by this user in the
+    30 minutes following the sign-in — role assignments, app consents,
+    mailbox rule creation, or token issuance indicate the access was used,
+    not merely established."
+  - "Correlate with prior failed sign-ins: look for `ResultType != 0`
+    events for the same user from the same IP/ASN in the preceding hours —
+    a burst of failures followed by the scored success indicates brute
+    force or password spray (T1110) preceding the valid-account abuse."
+  - "If confirmed, treat as credential compromise: revoke sessions, force
+    password reset and re-registration of MFA, and review what the account
+    could reach during the exposure window."
+
+falsePositives:
+  - "Genuine business travel — a user legitimately working from a new
+    country on their normal corporate device during reasonable local hours.
+    The graded device factor and clustering requirement are designed to
+    keep these in the Low/Medium band."
+  - "Hardware refresh or first sign-in from a newly issued corporate device,
+    which produces an unseen `deviceId` until the baseline catches up."
+  - "Shift workers, on-call staff, and night-shift roles whose legitimate
+    sign-ins routinely fall outside the 07:00–19:00 UK-local window — this
+    factor will fire on every such sign-in. Suppress or zero-weight the
+    time factor for known 24x7 roles, or widen the window per population."
+  - "Users genuinely working in distant timezones: the window is evaluated
+    in UK local time, so a user whose normal day is, e.g., US Pacific or
+    APAC hours may fall outside it consistently and accrue a constant +15.
+    By design this hunt targets a UK-centric audience and treats these as
+    EXPECTED output resolved at analyst triage, not a defect to tune out:
+    an off-shore user tripping only `Off-Hours(+15)` is precisely the
+    single-factor case investigation step 1 deprioritises via the
+    `ScoreReasons` breakdown. Do NOT zero-weight or suppress the time
+    factor to silence this on a primarily-UK estate — doing so discards
+    signal that is wanted for the in-scope population. Suppression is only
+    appropriate for a materially non-UK or 24x7 estate (see curatorNotes)."
+  - "VPN, tethering, or ISP CGNAT causing the source to fall outside trusted
+    named locations even for a stationary user (this is why network is only
+    weighted +10)."
+  - "Baseline cold-start: new joiners and returners from extended leave have
+    a thin or empty 30-day baseline and will score highly until history
+    accumulates. Suppress or down-weight accounts with fewer than N prior
+    sign-ins in the window."
+
+# ---------------------------------------------------------------------------
+# Curator notes
+# ---------------------------------------------------------------------------
+curatorNotes: |
+  Maturity is Experimental: the factor weights below are a reasoned starting
+  point, NOT empirically calibrated for any specific tenant. They must be
+  tuned against a labelled set of known-good and known-bad sign-ins before
+  this is promoted toward Production. Do not operationalise the raw bands
+  as an alert rule without that calibration.
+
+  Design decisions worth preserving:
+
+  - Additive transparent model was chosen deliberately over multiplicative
+    so that every score is auditable and re-tunable by anyone lifting this
+    from the public library. Factor interactions (e.g. new-device matters
+    more when also new-country) are expressed as a conditional *bonus*
+    block, not true multiplication, to keep the arithmetic legible.
+  - The 30-day baseline is computed inline in the same query. For large
+    tenants this is expensive on every run; the recommended optimisation is
+    to materialise the per-user baseline (countries, deviceIds, hour band,
+    trusted networks) into a summary table refreshed daily and join against
+    it, rather than recomputing the lookback each execution. Flagged here
+    so it is not a silent performance surprise.
+  - Device trust is intentionally a graded ladder (compliant>known>unseen)
+    NOT compliant-vs-not. Tenant Intune/compliance coverage is mixed; null
+    compliance is scored neutral, not untrusted, to avoid a large benign
+    false-positive class. Changing this to "null == untrusted" is a
+    legitimate tightening choice for a fully managed estate but must be a
+    conscious decision.
+  - Time-of-day uses a FIXED working window (07:00–19:00) evaluated in UK
+    local time, NOT a per-user hour baseline. This is a deliberate
+    simplification chosen for legibility on a UK-centric estate. It is the
+    one factor that is not behavioural. Two consequences are documented
+    rather than hidden: (a) it is correct year-round because the query
+    converts UTC to Europe/London (BST/GMT handled), not raw UTC; (b) it
+    is structurally wrong for users whose legitimate working hours sit
+    outside UK daytime — night-shift, on-call, and genuinely
+    distant-timezone users will accrue a constant +15. For materially
+    non-UK or 24x7 populations the correct action is to zero the time
+    factor's weight or suppress it per population, NOT to widen the window
+    so far it becomes meaningless. An honest alternative for heavily
+    global estates is to drop this factor entirely and rebalance the
+    remaining weights — left as a tuning decision for the implementer.
+    OPERATING ASSUMPTION FOR THIS HUNT: the intended audience is
+    UK-based. Off-shore / off-hours sign-ins flagged by this factor are
+    treated as EXPECTED output triaged by analyst knowledge at runtime
+    (via the per-factor `ScoreReasons` array), not as a defect to remove.
+    The suppression guidance above applies ONLY when re-deploying this
+    hunt against a materially non-UK or 24x7 estate — on the intended
+    UK-centric estate the factor is left live by design and the residual
+    false positives are an accepted, human-handled cost.
+  - "User behaviour: what is the user attempting to access" from the
+    original concept is deliberately reduced to *target application
+    sensitivity* only. True intent analysis requires post-auth telemetry
+    (AuditLogs / CloudAppEvents) and belongs in a correlated follow-on
+    hunt — see relatedHunts. Scoring "intent" from SigninLogs alone would
+    produce an unreliable number.
+  - Entra-native risk is corroboration only (+15), never the primary
+    driver. If Identity Protection is not licensed/enabled in the tenant
+    that factor silently contributes 0 — acceptable degradation, but note
+    it so a missing P2 licence is not mistaken for low risk.
+
+  Suggested promotion criteria: ROC/precision measured against a labelled
+  month of sign-ins, band thresholds set from that distribution, and the
+  baseline materialised before the analytic runs at tenant scale.
+
+# ---------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------
+references:
+  - label: "MITRE ATT&CK: Valid Accounts — Cloud Accounts (T1078.004)"
+    url: https://attack.mitre.org/techniques/T1078/004/
+  - label: "MITRE ATT&CK: Valid Accounts (T1078)"
+    url: https://attack.mitre.org/techniques/T1078/
+  - label: "MITRE ATT&CK: Brute Force (T1110) — common precursor"
+    url: https://attack.mitre.org/techniques/T1110/
+  - label: "Microsoft Learn: SigninLogs schema (Azure Monitor reference)"
+    url: https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/signinlogs
+  - label: "Microsoft Learn: What is Microsoft Entra ID Protection?"
+    url: https://learn.microsoft.com/en-us/entra/id-protection/overview-identity-protection
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ===================================================================
+      // Dynamic Multi-Factor Sign-In Risk Score
+      // -------------------------------------------------------------------
+      // Builds a 30-day per-user behavioural baseline, then scores each
+      // successful interactive sign-in in the evaluation window against it.
+      // Transparent additive model: each factor adds points; reasons are
+      // emitted alongside the total so analysts triage the breakdown,
+      // never the number alone.
+      // ===================================================================
+      // --- Tunable parameters -------------------------------------------
+      let lookback        = 30d;   // baseline history window
+      let evalWindow       = 1d;   // sign-ins scored on this run
+      let minBaselineCount = 5;    // min prior sign-ins before scoring (cold-start guard)
+      // Fixed working-window definition for the time-of-day factor.
+      // Evaluated in UK local time (Europe/London) so that BST is handled
+      // correctly and the window means the same thing year-round. See
+      // curatorNotes for the distant-timezone limitation.
+      let workStartHour = 7;       // inclusive  (07:00 local)
+      let workEndHour   = 19;      // exclusive  (up to 18:59 local)
+      let signInTZ      = "Europe/London";
+      // Sensitive target applications (tune to environment).
+      let SensitiveApps = dynamic([
+          "Azure Portal",
+          "Microsoft Graph",
+          "Microsoft Azure PowerShell",
+          "Azure Active Directory PowerShell",
+          "Microsoft Azure CLI",
+          "Microsoft Admin Web UI"
+      ]);
+      // --- Successful interactive sign-ins in the evaluation window ------
+      let CurrentSignins =
+          SigninLogs
+          | where TimeGenerated > ago(evalWindow)
+          | where ResultType == 0                       // successful only
+          | where AuthenticationRequirement != ""       // interactive
+          | extend
+              Country  = tostring(LocationDetails.countryOrRegion),
+              DeviceId = tostring(DeviceDetail.deviceId),
+              IsCompliant = tobool(DeviceDetail.isCompliant),
+              IsManaged   = tobool(DeviceDetail.isManaged),
+              // UK-local hour; datetime_utc_to_local handles GMT/BST so the
+              // fixed window is correct year-round, not UTC-skewed.
+              LocalHour   = datetime_part("hour",
+                                datetime_utc_to_local(TimeGenerated, signInTZ)),
+              TrustedNet  = tostring(NetworkLocationDetails) has "trustedNamedLocation",
+              TargetApp   = coalesce(tostring(AppDisplayName), tostring(ResourceDisplayName)),
+              NativeRisk  = tostring(RiskLevelDuringSignIn);
+      // --- 30-day per-user baseline -------------------------------------
+      // Computed inline; for tenant scale, materialise this to a summary
+      // table refreshed daily and join instead (see curatorNotes).
+      // Note: no hour history is collected — the time factor uses a fixed
+      // working window, not a per-user hour baseline.
+      let Baseline =
+          SigninLogs
+          | where TimeGenerated between (ago(lookback) .. ago(evalWindow))
+          | where ResultType == 0
+          | extend
+              Country  = tostring(LocationDetails.countryOrRegion),
+              DeviceId = tostring(DeviceDetail.deviceId)
+          | summarize
+              KnownCountries = make_set(Country, 250),
+              KnownDevices   = make_set(DeviceId, 500),
+              PriorSignins   = count()
+            by UserPrincipalName;
+      CurrentSignins
+      | join kind=leftouter (Baseline) on UserPrincipalName
+      // Cold-start guard: skip users without enough history to baseline.
+      | where isnull(PriorSignins) == false and PriorSignins >= minBaselineCount
+      // ---- Factor 1: location familiarity (+30) -----------------------
+      // set_has_element does exact, type-aware element equality — unlike
+      // `contains`, which is a substring match and would mismatch
+      // (e.g. country "US" substring-matching inside other values).
+      | extend f_loc =
+            iff(set_has_element(KnownCountries, Country) == false, 30, 0)
+      // ---- Factor 2: device trust / familiarity (graded) --------------
+      //   compliant+managed  -> trusted (0)
+      //   previously seen    -> neutral (0)   [null compliance NOT punished]
+      //   brand-new / unseen -> high     (+25)
+      | extend f_dev =
+            case(
+                IsCompliant == true and IsManaged == true, 0,
+                set_has_element(KnownDevices, DeviceId) and DeviceId != "", 0,
+                25)
+      // ---- Factor 3: time-of-day deviation (+15) ----------------------
+      //   Fires when the sign-in falls outside the fixed working window
+      //   (workStartHour inclusive .. workEndHour exclusive) evaluated in
+      //   UK local time. This is a deliberately simple, legible definition
+      //   suitable for a UK-centric estate; it is NOT per-user behavioural.
+      //   Distant-timezone users should have this factor down-weighted or
+      //   suppressed — see curatorNotes / falsePositives.
+      | extend f_time =
+            iff(LocalHour < workStartHour or LocalHour >= workEndHour, 15, 0)
+      // ---- Factor 4: target application sensitivity (+15) -------------
+      | extend f_app =
+            iff(TargetApp in~ (SensitiveApps), 15, 0)
+      // ---- Factor 5: network trust (+10) ------------------------------
+      | extend f_net =
+            iff(TrustedNet == "True", 0, 10)
+      // ---- Factor 6: Entra-native corroboration (+15) -----------------
+      //   Contributes 0 if Identity Protection is unlicensed/disabled.
+      | extend f_native =
+            iff(NativeRisk in ("medium", "high"), 15, 0)
+      // ---- Conditional interaction bonus ------------------------------
+      //   New country AND new device together is disproportionately
+      //   indicative of compromise vs either alone (+15). Expressed as a
+      //   legible bonus, not multiplication.
+      | extend f_bonus =
+            iff(f_loc > 0 and f_dev > 0, 15, 0)
+      // ---- Total + transparent reason array ---------------------------
+      | extend RiskScore = f_loc + f_dev + f_time + f_app + f_net + f_native + f_bonus
+      // Build the candidate reason array, then strip the empty slots for
+      // factors that did not fire. KQL has no array-filter primitive, so
+      // set_difference against [""] is the idiomatic way to drop blanks
+      // while preserving a true dynamic() column for downstream parsing.
+      | extend ScoreReasons = set_difference(pack_array(
+            iff(f_loc    > 0, "New-Country(+30)", ""),
+            iff(f_dev    > 0, "Unseen-Device(+25)", ""),
+            iff(f_time   > 0, "Off-Hours(+15)", ""),
+            iff(f_app    > 0, "Sensitive-App(+15)", ""),
+            iff(f_net    > 0, "Untrusted-Network(+10)", ""),
+            iff(f_native > 0, "Entra-Native-Risk(+15)", ""),
+            iff(f_bonus  > 0, "Country+Device-Combo(+15)", "")
+        ), pack_array(""))
+      | extend RiskBand =
+            case(
+                RiskScore >= 70, "Critical",
+                RiskScore >= 45, "High",
+                RiskScore >= 25, "Medium",
+                "Low")
+      | where RiskBand in ("High", "Critical")   // surface actionable only
+      | project
+          TimeGenerated,
+          UserPrincipalName,
+          RiskScore,
+          RiskBand,
+          ScoreReasons,
+          Country,
+          IPAddress,
+          TargetApp,
+          DeviceId,
+          IsCompliant,
+          IsManaged,
+          NativeRisk,
+          ConditionalAccessStatus,
+          AuthenticationRequirement
+      | order by RiskScore desc, TimeGenerated desc
+
+# ---------------------------------------------------------------------------
+# Related hunts
+# ---------------------------------------------------------------------------
+relatedHunts:
+  - HL-004
