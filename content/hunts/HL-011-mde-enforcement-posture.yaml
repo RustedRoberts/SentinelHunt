@@ -1,4 +1,4 @@
-id: HL-XXX
+id: HL-011
 title: Microsoft Defender for Endpoint Enforcement Posture and Protection Gap Hunting
 summary: >
   Surfaces every blocking or enforcement action taken by Microsoft Defender for Endpoint
