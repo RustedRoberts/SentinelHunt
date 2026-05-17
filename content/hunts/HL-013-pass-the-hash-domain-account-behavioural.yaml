@@ -1,0 +1,335 @@
+id: HL-013
+title: Pass the Hash via Stolen Domain Account Hash - Behavioural Triage
+summary: >
+  Detects probable Pass the Hash (PtH) lateral movement performed with a stolen
+  DOMAIN account hash, where the high-fidelity local-account filter is
+  unavailable because the account legitimately belongs to a known domain.
+  Instead of a single binary indicator, this hunt profiles each domain account's
+  NTLM network-logon behaviour over a 30-day window and produces a ranked triage
+  shortlist for human review based on destination fan-out, NTLM-versus-Kerberos
+  ratio, source spread and burst timing. It is a hunt, not an alert, and the
+  score orders the queue rather than asserting a verdict.
+hypothesis: |
+  Pass the Hash abuses the NTLM authentication protocol's use of the password
+  hash in place of the cleartext password. An adversary who has captured a
+  domain account's NTLM hash (from LSASS memory, the local SAM, or NTDS.dit)
+  can replay it against remote hosts to move laterally without ever recovering
+  the plaintext password, and the access survives until the password itself is
+  changed.
+
+  The local-account variant of this hunt (see related hunts) achieves high
+  fidelity by filtering to non-domain accounts, on the basis that a shared
+  local administrator credential reused across hosts is the classic PtH path.
+  That lever is deliberately unavailable here: in this scenario the stolen
+  credential is a legitimate domain account, so a domain-exclusion filter would
+  remove exactly the activity of interest. The filter is therefore inverted -
+  the hunt keeps only known, legitimate domains - and the lost fidelity is
+  replaced with behavioural shape rather than a single indicator.
+
+  When a domain hash is replayed against a remote host the target records
+  Event ID 4624 with Logon Type 3 (network logon), logon process NtLmSsp and a
+  session key length of 0, characteristic of the lower-level protocols (SMB,
+  WMI, WinRM) used for PtH. A single such event for a domain account is weak
+  evidence on its own because legacy NTLM is common in many estates. The
+  meaningful signal is behavioural and relative to the account's own baseline:
+
+  - Fan-out: one account authenticating over zero-key NTLM to many distinct
+    destination hosts in the window (consistent with hash spraying / lateral
+    movement).
+  - NTLM-heavy ratio: a domain account whose authentication is overwhelmingly
+    NTLM despite domain accounts normally favouring Kerberos. Kerberos volume
+    is approximated from Event IDs 4768 (TGT request) and 4769 (service-ticket
+    request) for the same account.
+  - Source spread: the same account authenticating from many distinct source
+    IPs, consistent with the hash being used from multiple attacker positions.
+  - Burst timing: many distinct destinations reached inside a short window.
+
+  No single dimension confirms PtH; the combination, ranked, surfaces the
+  accounts most worth an analyst's time.
+author: RustedRoberts
+updated: "2026-05-17"
+version: "1.0"
+
+tactics:
+  - Lateral Movement
+
+techniques:
+  - id: T1550.002
+    name: "Use Alternate Authentication Material: Pass the Hash"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Experimental
+signal: Low
+
+dataSources:
+  - product: Windows Security
+    table: SecurityEvent
+    required: true
+
+whatYoullSee: |
+  This hunt returns a ranked shortlist of domain accounts, not individual
+  alertable events. A high-interest row looks like:
+
+  - A legitimate domain account (TargetDomainName in the known-domain set)
+  - A high `DistinctTargetHosts` count over the 30-day window - the account
+    authenticated over zero-key NTLM to many distinct machines
+  - A high `NtlmShare` (close to 1.0) - the account's authentication is almost
+    entirely NTLM despite being a domain account that would normally transact
+    in Kerberos. NtlmShare is NTLM logons / (NTLM logons + Kerberos events),
+    so 0.9+ means the account barely touches Kerberos
+  - Multiple `DistinctSourceIPs` - the credential is being used from several
+    positions
+  - A short `WindowHours` against a high host count - burst behaviour, the
+    `Score_Burst` component fires when 5+ hosts are reached within an hour
+  - `NullSidSeen` containing "Yes" is a corroborating signal (Null SID
+    S-1-0-0 is common but not universal in PtH) and is surfaced, not gated on
+
+  The decisive raw indicators on every contributing event remain
+  `LogonType == 3`, `LogonProcessName == "NtLmSsp"` and `KeyLength == 0`; the
+  hunt's value is the per-account aggregation and ordering layered on top.
+
+  `TargetHostSet` and `SourceIPSet` are included (capped at 50) so an analyst
+  can immediately see the spread without a second query.
+
+investigationSteps:
+  - "Start at the top of the ranked list. Treat `TriageScore` purely as queue
+    order - it is not a confidence value and not a verdict. Work down until
+    findings stop being interesting."
+  - "Sanity-check the account: is this a service or automation account whose
+    job is legitimately to touch many hosts over NTLM (backup, scanning,
+    inventory, SCCM-style management)? If so it is expected behaviour - record
+    it and add it to the environment baseline for future runs."
+  - "Inspect `NtlmShare`: a domain account at 0.9+ NTLM share is anomalous
+    against normal Kerberos-favouring domain behaviour and is the strongest
+    behavioural pointer here. Compare against the account's role - a human
+    user's workstation account should not be almost pure NTLM."
+  - "Examine `SourceIPSet`: resolve the source IPs to hosts. Do these source
+    machines have any legitimate reason to authenticate as this account to the
+    destinations in `TargetHostSet`? Workstation-to-workstation NTLM with a
+    domain account is unusual."
+  - "Check `WindowHours` versus `DistinctTargetHosts`: a large host count
+    compressed into a short window is the burst pattern of automated lateral
+    movement, not gradual legitimate use."
+  - "Hunt upstream for the credential theft on the earliest source host
+    (`FirstSeen`): look for LSASS access, SAM/registry hive dumping or NTDS.dit
+    extraction that would have produced the hash now being replayed.
+    Cross-reference HL-003."
+  - "Check follow-on activity on the destination hosts: new process creation,
+    service or scheduled-task creation (PsExec-style remote execution), or
+    onward NTLM logons originating from those destinations indicating continued
+    pivoting."
+  - "If confirmed, reset the compromised domain account's password to
+    invalidate the stolen hash, isolate the affected hosts, and determine the
+    earliest compromised host to scope the intrusion."
+
+falsePositives:
+  - Service, automation and management accounts (backup agents, vulnerability
+    scanners, asset inventory, software-distribution systems) that legitimately
+    authenticate over NTLM to many hosts. These can score highly on fan-out and
+    NTLM share and should be baselined and allow-listed by account.
+  - Legacy applications and appliances pinned to NTLM that cause otherwise
+    normal domain accounts to show a high NTLM share.
+  - Administrative tooling (PsExec and similar) used with domain credentials by
+    operations teams across many hosts - expected for some admin accounts;
+    baseline the known administrative accounts and source hosts.
+  - Health-checking, monitoring and login-script activity that produces
+    predictable periodic zero-key NTLM network logons.
+  - Re-authentication after stale or unclosed remote sessions, which can
+    superficially resemble hash reuse; corroborate with source-host context.
+
+curatorNotes: |
+  Status: Experimental. This is explicitly a hunt and a triage aid, not an
+  alertable analytic. The triage score orders the review queue only - it must
+  not be promoted into a severity or a confidence value, and it must not be
+  wired to automated response. The detection floor is kept deliberately low
+  (DistinctTargetHosts > 1) for the same reason.
+
+  CORRECTION APPLIED - source query bug fixed: the supplied query filtered on
+  `LogonProcessName == "NtLmSsp "` with a trailing space, annotated with a note
+  to confirm whether the whitespace was a temporary bug. In SecurityEvent the
+  value is `NtLmSsp` with no trailing whitespace, so an exact-match comparison
+  against `"NtLmSsp "` would match zero rows and the entire hunt would silently
+  return nothing - the precise silent-failure mode the curator-notes convention
+  exists to prevent. The predicate has been corrected to `== "NtLmSsp"` in the
+  implementation below. If a specific estate genuinely emits a trailing space
+  in this field, revert this single predicate and re-baseline; otherwise leave
+  the corrected form in place.
+
+  Data source dependency: this hunt is faithful to the methodology only when
+  `SecurityEvent` is available with Security Event collection enabled at a tier
+  that includes 4624, 4768 and 4769. `KeyLength` (the zero-session-key test) is
+  not exposed by Microsoft Defender for Endpoint's `DeviceLogonEvents`, so
+  unlike the local-account hunt no MDE fallback is offered here - the
+  behavioural model depends on the Kerberos-versus-NTLM ratio, which requires
+  4768/4769 from the Security log. Flag this dependency to any operator before
+  use.
+
+  Kerberos-ratio caveat: the NtlmShare denominator approximates Kerberos
+  activity from 4768/4769 event counts joined on TargetUserName only (not
+  domain-qualified). In multi-domain estates with name collisions this can
+  understate or overstate the true ratio. Treat NtlmShare as a strong
+  directional indicator, not a precise measurement, and confirm against the
+  account's role during triage. Domain-qualifying the Kerberos join is a
+  candidate refinement once baselined.
+
+  Tuning levers, in priority order: the known-domain set
+  (TargetDomainName in~ (...)) must be set to the client estate before first
+  run - it is the inverse of the local-account hunt's exclusion and is
+  mandatory, not optional. After that, the score component thresholds
+  (fan-out, NTLM share, source spread, burst) are the primary tuning surface
+  and should be adjusted to environment baselines during the hunt rather than
+  treated as fixed.
+
+  ATT&CK tactic note: MITRE ATT&CK (v19) maps the parent technique T1550 to
+  Lateral Movement. Some secondary references additionally tag Pass the Hash
+  with Defense Evasion. This hunt records Lateral Movement as primary in line
+  with the authoritative ATT&CK entry; Defense Evasion is a recognised
+  secondary characterisation, not an error.
+
+  Relationship to the local-account hunt: this is the deliberate counterpart -
+  same underlying 4624/Logon Type 3/NtLmSsp/KeyLength == 0 population, opposite
+  domain posture (keep known domains rather than exclude them), with
+  behavioural aggregation substituted for the single high-fidelity
+  local-account filter. Run both for full PtH coverage across local and domain
+  credential reuse.
+
+references:
+  - label: "MITRE ATT&CK: Use Alternate Authentication Material - Pass the Hash (T1550.002)"
+    url: https://attack.mitre.org/techniques/T1550/002/
+  - label: "Binary Defense: Reliably Detecting Pass the Hash Through Event Log Analysis"
+    url: https://binarydefense.com/resources/blog/reliably-detecting-pass-the-hash
+  - label: "Netwrix: Pass the Hash Attack"
+    url: https://netwrix.com/en/cybersecurity-glossary/cyber-security-attacks/pass-the-hash-attack/
+  - label: "SigmaHQ: Pass the Hash Activity 2 (detection rule lineage)"
+    url: https://detection.fyi/sigmahq/sigma/windows/builtin/security/account_management/win_security_pass_the_hash_2/
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // -----------------------------------------------------------------------
+      // Scenario - Pass-the-Hash via stolen DOMAIN account hash.
+      // HUNT query: low fidelity is acceptable; output is a ranked triage
+      // shortlist for human review, NOT an alert and NOT a verdict.
+      //
+      // The domain-exclusion lever from the local-account hunt is unavailable
+      // here (the account legitimately belongs to a known domain), so it is
+      // deliberately removed and replaced with behavioural shape:
+      //   - fan-out across distinct destination hosts
+      //   - NTLM where the account would normally use Kerberos
+      //   - source-host / source-IP spread
+      //   - burst timing
+      // -----------------------------------------------------------------------
+      let lookback = 30d;
+      // Step 1: the NTLM network-logon population for KNOWN domains only.
+      // This is the inverse of the local-account hunt: here we WANT the
+      // known-domain accounts, because this scenario lives inside them.
+      let NtlmNetwork =
+          SecurityEvent
+          | where TimeGenerated > ago(lookback)
+          | where EventID == 4624
+          | where LogonType == 3
+          // CORRECTED: source query had "NtLmSsp " with a trailing space,
+          // which matches zero rows in SecurityEvent (the field has no
+          // trailing whitespace) and would silently break the entire hunt.
+          // Fixed to the correct value. See curatorNotes for the rationale.
+          | where LogonProcessName contains "NtLmSsp"
+          | where KeyLength == 0
+          | where TargetUserName !endswith "$"
+          | where TargetUserName !~ "ANONYMOUS LOGON"
+          // Keep ONLY the legitimate domains - the opposite of the
+          // local-account posture. Adjust the set to the client estate.
+          | where TargetDomainName in~ ("domain1", "domain2", "domain3")
+          | extend NullSidIndicator = iff(SubjectUserSid == "S-1-0-0", "Yes", "No");
+      // Step 2: per-account behavioural profile over the window.
+      let Profile =
+          NtlmNetwork
+          | summarize
+              DistinctTargetHosts = dcount(Computer),
+              TargetHostSet       = make_set(Computer, 50),
+              DistinctSourceIPs   = dcount(IpAddress),
+              SourceIPSet         = make_set(IpAddress, 50),
+              TotalNtlmLogons     = count(),
+              NullSidSeen         = make_set(NullSidIndicator, 2),
+              FirstSeen           = min(TimeGenerated),
+              LastSeen            = max(TimeGenerated)
+              by TargetUserName, TargetDomainName;
+      // Step 3: total Kerberos vs NTLM for the same accounts, so we can spot
+      // accounts that are NTLM-heavy relative to their OWN normal behaviour.
+      // 4768/4769 are TGT/service-ticket requests = Kerberos activity.
+      let KerbActivity =
+          SecurityEvent
+          | where TimeGenerated > ago(lookback)
+          | where EventID in (4768, 4769)
+          | extend KerbUser = tostring(TargetUserName)
+          | summarize KerberosEvents = count() by KerbUser;
+      Profile
+      | join kind=leftouter (KerbActivity) on $left.TargetUserName == $right.KerbUser
+      | extend KerberosEvents = coalesce(KerberosEvents, 0)
+      // NTLM share of the account's authentication. An account that is almost
+      // entirely NTLM despite being a domain account is more interesting than
+      // one that is predominantly Kerberos with occasional NTLM.
+      | extend NtlmShare = round(
+                               todouble(TotalNtlmLogons) /
+          todouble(TotalNtlmLogons + KerberosEvents),
+                               3
+                           )
+      | extend WindowHours = round(todouble(datetime_diff('minute', LastSeen, FirstSeen)) / 60.0, 2)
+      // -------------------------------------------------------------------
+      // Triage score - ORDERING ONLY, not a confidence or a verdict.
+      // Each component is a question a human would ask anyway; the score
+      // just sorts the queue. Tune weights to the environment during the hunt.
+      // -------------------------------------------------------------------
+      | extend
+          Score_FanOut    = case(
+                            DistinctTargetHosts >= 20,
+                            3,
+                            DistinctTargetHosts >= 10,
+                            2,
+                            DistinctTargetHosts >= 3,
+                            1,
+                            0
+                        ),
+          Score_NtlmHeavy = case(
+                            NtlmShare >= 0.9,
+                            3,
+                            NtlmShare >= 0.7,
+                            2,
+                            NtlmShare >= 0.5,
+                            1,
+                            0
+                        ),
+          Score_SourceSpread = case(
+                               DistinctSourceIPs >= 10,
+                               2,
+                               DistinctSourceIPs >= 3,
+                               1,
+                               0
+                           ),
+          Score_Burst     = iff(DistinctTargetHosts >= 5 and WindowHours <= 1, 2, 0)
+      | extend TriageScore = Score_FanOut + Score_NtlmHeavy + Score_SourceSpread + Score_Burst
+      // Floor kept deliberately low - this is a hunt, not an alert.
+      | where DistinctTargetHosts > 1
+      | project
+          TargetUserName,
+          TargetDomainName,
+          TriageScore,
+          DistinctTargetHosts,
+          DistinctSourceIPs,
+          NtlmShare,
+          TotalNtlmLogons,
+          KerberosEvents,
+          WindowHours,
+          FirstSeen,
+          LastSeen,
+          TargetHostSet,
+          SourceIPSet,
+          NullSidSeen
+      | sort by TriageScore desc, DistinctTargetHosts desc
+
+relatedHunts:
+  - HL-010
+  - HL-003
