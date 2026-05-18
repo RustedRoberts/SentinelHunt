@@ -163,7 +163,7 @@ curatorNotes: |
       "Forensic and Logging Tool Termination" - do not fold it in here, as it
       would force signal down from High.
 
-  Maturity is Tuning, not Production - the list still needs validation against
+  Maturity is Experimental, not Production - the list still needs validation against
   the security products actually deployed in the estate. Run a baseline query
   against DeviceProcessEvents/registry to enumerate installed sensor service
   names and prune/extend before promotion.
@@ -201,7 +201,7 @@ references:
   - label: "MITRE ATT&CK: Impair Defenses (T1562)"
     url: https://attack.mitre.org/techniques/T1562/
   - label: "Microsoft Learn: Protect security settings with tamper protection"
-    url: https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
+    url: https://learn.microsoft.com/en-gb/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
   - label: "ZephrFish/edr-checker - vendor-coverage source for the curated list"
     url: https://github.com/ZephrFish/edr-checker/blob/master/Invoke-EDRChecker.ps1
   - label: "Red Canary Threat Detection Report: Disable or Modify Tools"

@@ -1,0 +1,403 @@
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+id: HL-015
+title: EDR and Antivirus Process Termination
+summary: >
+  Detects attempts to terminate running endpoint security processes - via
+  taskkill.exe, PowerShell Stop-Process, WMI process termination, or a direct
+  TerminateProcess API call - targeting a curated list of known EDR and
+  antivirus process image names across major vendors. Killing the protective
+  process directly, rather than stopping its service, is a defence-evasion
+  technique used to silence real-time monitoring and telemetry without
+  touching the Service Control Manager.
+
+hypothesis: |
+  Endpoint security products run one or more user-mode processes (MsMpEng.exe,
+  MsSense.exe, CSFalconService.exe, SentinelAgent.exe, and similar) that
+  perform real-time inspection and ship telemetry to the management plane. An
+  adversary seeking to evade detection may attempt to kill these processes
+  directly. On a modern, well-configured EDR the core sensor runs as a
+  Protected Process Light or behind an anti-tamper driver, so a naive taskkill
+  typically fails with Access Denied - but the attempt itself is a high-value
+  indicator of intent, and unprotected ancillary processes, mis-configured
+  tamper protection, or a kernel primitive (covered by separate BYOVD-focused
+  hunts) can make the kill succeed.
+
+  Two telemetry surfaces matter. First, DeviceProcessEvents captures the
+  spawning of kill utilities - taskkill.exe, powershell.exe running
+  Stop-Process, wmic.exe invoking Win32_Process termination - with a command
+  line referencing a security product image or PID. Second, and importantly,
+  a direct TerminateProcess / NtTerminateProcess API call from injected code
+  or a custom binary never spawns a child process and is therefore invisible
+  to process-creation telemetry alone; DeviceEvents surfaces the
+  process-access and tamper-related ActionType records that expose this path.
+  Covering both surfaces against a curated list of EDR/AV image names produces
+  a robust signal for direct process-kill defence impairment.
+
+  Remote execution behaves differently and is easy to miss. When the kill is
+  issued remotely - e.g. "wmic /node:TARGET process where name='MsMpEng.exe'
+  call terminate" or a remote PowerShell Invoke-Command / WinRM session - the
+  client utility (wmic.exe, powershell.exe) runs only on the SOURCE host and
+  never executes on the target. On the target the request is brokered by a
+  system process: WmiPrvSE.exe (the WMI Provider Host, child of the Winmgmt
+  svchost) for WMI, or wsmprovhost.exe for WinRM/PS-Remoting. That broker
+  performs the TerminateProcess call itself, in-process, as SYSTEM - no
+  taskkill.exe or kill-utility child process is created on the target.
+  Consequently a remote WMIC/WinRM kill does NOT appear in the kill-utility
+  arm on the target device; it surfaces in the API-call arm as an
+  OpenProcessApiCall whose InitiatingProcessFileName is WmiPrvSE.exe or
+  wsmprovhost.exe against a curated security-product image. The API-call arm
+  therefore carries the remote-execution coverage, not just injected/custom
+  code.
+
+author: RustedRoberts
+updated: "2026-05-18"
+version: "1.2"
+
+# ---------------------------------------------------------------------------
+# ATT&CK mapping
+# ---------------------------------------------------------------------------
+tactics:
+  - Defense Evasion
+
+techniques:
+  - id: T1562.001
+    name: "Impair Defenses: Disable or Modify Tools"
+
+# ---------------------------------------------------------------------------
+# Scope
+# ---------------------------------------------------------------------------
+platforms:
+  - Windows Endpoint
+
+methodology: Signature
+maturity: Experimental
+signal: High
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceEvents
+    required: true
+
+# ---------------------------------------------------------------------------
+# Detection detail
+# ---------------------------------------------------------------------------
+whatYoullSee: |
+  In DeviceProcessEvents, a process creation for taskkill.exe, powershell.exe,
+  pwsh.exe, or wmic.exe whose ProcessCommandLine contains a termination verb
+  (/IM or /PID with /F, Stop-Process, "call terminate", "process where ...
+  delete") together with a curated EDR/AV process image name such as
+  MsMpEng.exe, MsSense.exe, CSFalconService.exe, SentinelAgent.exe,
+  CybereasonAP.exe, cyserver.exe, or cb.exe.
+
+  In DeviceEvents, look for OpenProcessApiCall against a target whose FileName
+  is one of the curated security-product images with access rights that permit
+  termination (PROCESS_TERMINATE, 0x0001, or PROCESS_ALL_ACCESS, 0x1fffff),
+  initiated by a process that is not itself a known security product. This is
+  the path that catches a direct TerminateProcess call from injected or custom
+  code, which produces no kill-utility child process.
+
+  A genuine attack frequently shows the targeted security process disappearing
+  from subsequent telemetry on that DeviceName, or - if tamper protection
+  holds - a repeated, failed sequence of attempts. Correlate with the related
+  service-stop hunt on DeviceName and a short time window; an adversary often
+  tries both surfaces.
+
+  For REMOTE kills (remote WMIC or WinRM/PS-Remoting), do not expect a
+  kill-utility process-creation event on the target - there is none. Instead
+  the signal appears in the API-call arm as an OpenProcessApiCall against a
+  curated security image where InitiatingProcessFileName is WmiPrvSE.exe (WMI)
+  or wsmprovhost.exe (WinRM), typically running as SYSTEM, often immediately
+  preceded by an inbound network logon (DeviceLogonEvents / 4624 type 3) from
+  the source host. Arm 3 additionally corroborates by flagging a process-end
+  for a curated security image whose initiating process is one of these
+  brokers. WmiPrvSE.exe is an extremely common benign broker, so it is the
+  combination of broker initiator + curated security target + terminate-capable
+  access mask that makes the event meaningful, not the broker alone.
+
+# ---------------------------------------------------------------------------
+# Triage and investigation
+# ---------------------------------------------------------------------------
+investigationSteps:
+  - "Determine the surface: was this a kill utility in DeviceProcessEvents
+    (taskkill/Stop-Process/wmic) or a direct OpenProcessApiCall with terminate
+    rights in DeviceEvents? The latter, from a non-security binary, is higher
+    fidelity and warrants priority."
+  - "Distinguish local from remote: if the OpenProcessApiCall initiator is
+    WmiPrvSE.exe or wsmprovhost.exe, this is a remote WMI/WinRM kill - there
+    will be no kill-utility process on this host. Pivot to DeviceLogonEvents
+    (or 4624 type 3) in the seconds before the call to identify the source
+    host and account that drove it, then triage the source."
+  - "Identify the initiating process: review InitiatingProcessFileName,
+    InitiatingProcessFolderPath, InitiatingProcessSHA256 and the parent tree.
+    Submit the SHA256 of an unknown initiator to threat intelligence -
+    low-prevalence or unsigned binaries terminating EDR are significant."
+  - "Confirm the target and outcome: which security product image was named,
+    and did the process actually terminate? Check the EDR console for the
+    host's sensor health and last check-in, and look for the target process
+    re-spawning (watchdog) versus staying down."
+  - "Assess surrounding activity: pivot on DeviceName for the related
+    service-stop behaviour, exclusion-list changes, vulnerable driver loads
+    (DeviceImageLoadEvents), or AMSI/ETW tampering within +/- 30 minutes -
+    process kills rarely occur in isolation."
+  - "Validate authorisation against change management and the asset owner. If
+    unauthorised, isolate the host, restore and verify the security agent, and
+    preserve process, command-line and access-rights artefacts before
+    remediation."
+
+falsePositives:
+  - EDR or AV upgrade and self-repair workflows that terminate and relaunch
+    their own processes during versioning. Scope by initiating process - the
+    vendor's own updater terminating its own image is expected.
+  - IT administrators force-killing a hung security agent during documented
+    troubleshooting.
+  - Legitimate security tooling (the EDR itself, or a second agent) that opens
+    handles to other processes for inspection - exclude known security-product
+    initiators by SHA256, not by filename, to resist renamed-binary bypass.
+  - System imaging or sysprep activity that terminates running agents prior to
+    capture.
+
+# ---------------------------------------------------------------------------
+# Curator notes
+# ---------------------------------------------------------------------------
+curatorNotes: |
+  Process-image list provenance: the curated list below was expanded using the
+  public ZephrFish/edr-checker recon script's $edr_list as a vendor-coverage
+  source, then converted into exact .exe image names per vendor. It is NOT the
+  raw edr-checker pattern list. The edr-checker script intentionally uses broad
+  substring matching because it is offensive recon where false positives are
+  cheap; using those fragments verbatim in a detection query would be actively
+  harmful.
+
+  Deliberately excluded from the source list and why:
+    - Over-broad fragments ("defender", "sense", "sentinel", "malware",
+      "inspector", "canary", "monitor") - as substring matches these match
+      enormous volumes of unrelated process names; "sentinel" ironically
+      matches Microsoft Sentinel references. Exact image names used instead.
+    - Non-EDR forensic/logging tooling (sysmon, wireshark, splunk, osquery,
+      SysInternals, amsi.dll) - killing these is also T1562.001 but has a
+      materially different false-positive profile. Tracked as a SEPARATE
+      future hunt: "Forensic and Logging Tool Termination" - not folded in
+      here, as it would force signal down from High.
+
+  External dependency: the DeviceEvents OpenProcessApiCall arm requires that
+  advanced/API-call telemetry is being ingested - on some onboarding
+  configurations OpenProcessApiCall events are sparse or absent. If DeviceEvents
+  does not return OpenProcessApiCall rows in the tenant, this hunt silently
+  degrades to the DeviceProcessEvents arm only and will miss direct
+  TerminateProcess calls. Validate event availability before relying on the
+  API arm; DeviceEvents is therefore marked required: true.
+
+  Remote-execution coverage (v1.2): a remote WMIC or WinRM/PS-Remoting kill
+  does NOT produce a kill-utility process on the target - wmic.exe /
+  powershell.exe run only on the source. On the target the terminating
+  process is a system broker: WmiPrvSE.exe (WMI Provider Host) or
+  wsmprovhost.exe (WinRM), which calls TerminateProcess in-process as SYSTEM.
+  Arm 1 therefore CANNOT see remote kills; Arm 2 (OpenProcessApiCall with
+  broker initiator) carries that coverage, and Arm 3 corroborates via the
+  process-end side. This is the single most common analyst misconception with
+  this hunt - Arm 1 is local-only. Do not exclude WmiPrvSE.exe/wsmprovhost.exe
+  as initiators; they are required for remote detection. Benign remote
+  management that legitimately cycles an agent via WMI/WinRM must be tuned out
+  by source host / account / InitiatingProcessSHA256 of the broker's parent
+  chain, never by dropping the broker image.
+
+  Maturity is Experimental: baseline the actual sensor process image names deployed
+  in the estate and prune/extend before promotion. Exclusions for benign
+  self-termination must be keyed on InitiatingProcessSHA256, never on filename,
+  to prevent a renamed-binary bypass (same principle as HL-003).
+
+  Detection deliberately retains failed attempts (Access Denied on a
+  tamper-protected target). Do not filter on outcome.
+
+  Recommended pairing: run alongside the related service-stop hunt; correlate
+  on DeviceName and time. A natural escalation is a BYOVD-focused variant
+  (vulnerable driver load correlated with sensor silence) tracked as a
+  separate file.
+
+# ---------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------
+references:
+  - label: "MITRE ATT&CK: Impair Defenses - Disable or Modify Tools (T1562.001)"
+    url: https://attack.mitre.org/techniques/T1562/001/
+  - label: "MITRE ATT&CK: Impair Defenses (T1562)"
+    url: https://attack.mitre.org/techniques/T1562/
+  - label: "Microsoft Learn: Protect security settings with tamper protection"
+    url: https://learn.microsoft.com/en-gb/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
+  - label: "Microsoft Learn: DeviceEvents table - advanced hunting schema"
+    url: https://learn.microsoft.com/en-gb/defender-xdr/advanced-hunting-deviceevents-table
+  - label: "ZephrFish/edr-checker - vendor-coverage source for the curated list"
+    url: https://github.com/ZephrFish/edr-checker/blob/master/Invoke-EDRChecker.ps1
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // -------------------------------------------------------------------
+      // EDR / AV direct process termination
+      // Arm 1: kill utilities (taskkill / Stop-Process / WMI) naming a
+      //        curated security-product image. LOCAL execution only -
+      //        remote WMIC/WinRM does NOT create a kill utility on target.
+      // Arm 2: direct OpenProcessApiCall with terminate-capable access
+      //        rights against a curated security-product image. Also
+      //        carries REMOTE coverage (initiator WmiPrvSE / wsmprovhost).
+      // Arm 3: process-END of a curated security image where the
+      //        initiating process is a remote broker (WmiPrvSE /
+      //        wsmprovhost) - corroborates remote WMIC/WinRM kills.
+      // List expanded from ZephrFish/edr-checker (vendor coverage) and
+      // converted to EXACT .exe image names - not the raw substrings.
+      // -------------------------------------------------------------------
+      let lookback = 7d;
+      // Curated EDR/AV *process image* names by vendor. Extend/prune per
+      // estate before promoting to Production.
+      let SecurityProcImages = dynamic([
+          // --- Microsoft Defender ---
+          "MsMpEng.exe", "MsSense.exe", "SenseIR.exe",
+          "SenseCncProxy.exe", "SenseNdr.exe", "NisSrv.exe",
+          "MpCmdRun.exe", "SecurityHealthService.exe",
+          // --- CrowdStrike ---
+          "CSFalconService.exe", "CSFalconContainer.exe",
+          // --- SentinelOne ---
+          "SentinelAgent.exe", "SentinelServiceHost.exe",
+          "SentinelStaticEngine.exe", "SentinelHelperService.exe",
+          // --- VMware Carbon Black ---
+          "cb.exe", "RepMgr.exe", "RepUx.exe", "RepWSC.exe",
+          // --- Cybereason ---
+          "CybereasonAP.exe", "CybereasonRansomFree.exe",
+          "minionhost.exe", "CrAmTray.exe",
+          // --- Palo Alto Cortex XDR / Traps ---
+          "cyserver.exe", "cytray.exe", "CyveraService.exe",
+          "cyoptics.exe", "cyupdate.exe",
+          // --- Trellix / FireEye / McAfee ---
+          "xagt.exe", "mfemms.exe", "mfevtps.exe", "macmnsvc.exe",
+          "masvc.exe",
+          // --- Trend Micro ---
+          "TmListen.exe", "Ntrtscan.exe", "TmCCSF.exe", "tmbmsrv.exe",
+          "PccNTMon.exe", "coreServiceShell.exe",
+          // --- Symantec / Broadcom ---
+          "ccSvcHst.exe", "smc.exe", "smcgui.exe", "snac64.exe",
+          "symcorpui.exe", "srtsp.sys",
+          // --- Sophos ---
+          "SavService.exe", "SophosHealth.exe", "SophosFS.exe",
+          "swi_service.exe", "SophosCleanM.exe",
+          // --- ESET ---
+          "ekrn.exe", "egui.exe",
+          // --- SecureWorks Red Cloak ---
+          "redcloak.exe", "procwall.exe",
+          // --- Tanium ---
+          "TaniumClient.exe", "TaniumDetectEngine.exe",
+          // --- Fortinet FortiEDR ---
+          "fortiedr.exe", "FortiEDRCollector.exe",
+          // --- Morphisec ---
+          "MorphisecServiceAgent.exe",
+          // --- Webroot ---
+          "WRSA.exe", "WRCore.exe"
+      ]);
+      // ---- Arm 1: kill utilities in process-creation telemetry ----------
+      let KillVerbs = dynamic([
+          "/im", "/pid", "/f",     // taskkill
+          "stop-process",          // PowerShell
+          "call terminate",        // wmic process ... call terminate
+          "where name",            // wmic process where name=...
+          "-processname",          // Stop-Process -ProcessName
+          "-id "                   // Stop-Process -Id
+      ]);
+      let Arm1 =
+          DeviceProcessEvents
+          | where Timestamp > ago(lookback)
+          | where FileName in~ ("taskkill.exe", "powershell.exe",
+                                "pwsh.exe", "wmic.exe")
+          | extend CmdLower = tolower(ProcessCommandLine)
+          | where CmdLower has_any (KillVerbs)
+          | where CmdLower has_any (SecurityProcImages)
+          | extend
+              Surface          = "ProcessCreate (kill utility)",
+              TargetImage      = "",
+              AccessRights     = "",
+              Detail           = ProcessCommandLine
+          | project
+              Timestamp, DeviceName, AccountName, Surface,
+              ActionUtility    = FileName,
+              TargetImage,
+              AccessRights,
+              Detail,
+              InitiatingProcess        = InitiatingProcessFileName,
+              InitiatingPath           = InitiatingProcessFolderPath,
+              InitiatingProcessSHA256;
+      // ---- Arm 2: direct TerminateProcess via OpenProcessApiCall --------
+      // PROCESS_TERMINATE = 0x0001, PROCESS_ALL_ACCESS = 0x1fffff.
+      let Arm2 =
+          DeviceEvents
+          | where Timestamp > ago(lookback)
+          | where ActionType == "OpenProcessApiCall"
+          | where FileName in~ (SecurityProcImages)   // target image
+          | extend AccessRightsStr = tostring(AdditionalFields.DesiredAccess)
+          | extend AccessRightsNum = tolong(AdditionalFields.DesiredAccess)
+          | where AccessRightsStr has_any ("0x1", "0x1fffff")
+               or (AccessRightsNum & 1) != 0
+               or AccessRightsNum == 2097151
+          // Exclude security products legitimately inspecting each other -
+          // refine by SHA256 in tuning rather than filename.
+          | where InitiatingProcessFolderPath !startswith @"C:\Program Files\Windows Defender"
+                and InitiatingProcessFileName !in~ (SecurityProcImages)
+          | extend
+              Surface          = "OpenProcessApiCall (direct terminate)",
+              ActionUtility    = "",
+              Detail           = strcat("DesiredAccess=", AccessRightsStr)
+          | project
+              Timestamp, DeviceName, AccountName, Surface,
+              ActionUtility,
+              TargetImage      = FileName,
+              AccessRights     = AccessRightsStr,
+              Detail,
+              InitiatingProcess        = InitiatingProcessFileName,
+              InitiatingPath           = InitiatingProcessFolderPath,
+              InitiatingProcessSHA256;
+      // ---- Arm 3: broker-initiated termination of a security image -----
+      // Corroborates remote WMIC / WinRM kills. On the target the killer
+      // is WmiPrvSE.exe (WMI) or wsmprovhost.exe (WinRM), not a kill
+      // utility - so this looks at the process-END side: a curated
+      // security image terminating with one of those brokers as the
+      // initiating process.
+      let RemoteBrokers = dynamic(["WmiPrvSE.exe", "wsmprovhost.exe"]);
+      let Arm3 =
+          DeviceProcessEvents
+          | where Timestamp > ago(lookback)
+          | where ActionType == "ProcessTerminated"
+          | where FileName in~ (SecurityProcImages)        // the killed image
+          | where InitiatingProcessFileName in~ (RemoteBrokers)
+          | extend
+              Surface          = "ProcessTerminated (remote broker)",
+              ActionUtility    = "",
+              AccessRights     = "",
+              Detail           = strcat("Killed via ",
+                                        InitiatingProcessFileName,
+                                        " (remote WMI/WinRM broker)")
+          | project
+              Timestamp, DeviceName, AccountName, Surface,
+              ActionUtility,
+              TargetImage      = FileName,
+              AccessRights,
+              Detail,
+              InitiatingProcess        = InitiatingProcessFileName,
+              InitiatingPath           = InitiatingProcessFolderPath,
+              InitiatingProcessSHA256;
+      union Arm1, Arm2, Arm3
+      | order by Timestamp desc
+
+# ---------------------------------------------------------------------------
+# Related hunts
+# ---------------------------------------------------------------------------
+relatedHunts:
+  - HL-003
