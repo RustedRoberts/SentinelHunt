@@ -53,7 +53,7 @@ platforms:
   - Windows Endpoint
 
 methodology: Signature
-maturity: Tuning
+maturity: Experimental
 signal: High
 
 # ---------------------------------------------------------------------------
