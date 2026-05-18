@@ -232,10 +232,6 @@ implementations:
           | where TimeGenerated > ago(lookback)
           | where EventID == 4624
           | where LogonType == 3
-          // CORRECTED: source query had "NtLmSsp " with a trailing space,
-          // which matches zero rows in SecurityEvent (the field has no
-          // trailing whitespace) and would silently break the entire hunt.
-          // Fixed to the correct value. See curatorNotes for the rationale.
           | where LogonProcessName contains "NtLmSsp"
           | where KeyLength == 0
           | where TargetUserName !endswith "$"
