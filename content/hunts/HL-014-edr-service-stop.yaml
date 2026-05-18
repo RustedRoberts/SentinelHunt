@@ -1,0 +1,304 @@
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+id: HL-014
+title: EDR and Antivirus Service Stop via Service Control Manager
+summary: >
+  Detects attempts to stop or disable endpoint security services through the
+  Windows Service Control Manager - using utilities such as sc.exe, net.exe,
+  PowerShell Stop-Service, or WMI - targeting a curated list of known EDR and
+  antivirus service names across major vendors. Stopping the protective
+  service is a common defence-evasion precursor that allows an adversary to
+  operate without real-time monitoring or telemetry collection.
+
+hypothesis: |
+  Endpoint security products (Microsoft Defender for Endpoint, CrowdStrike
+  Falcon, SentinelOne, Carbon Black, Cybereason, Cortex XDR, Trend Micro,
+  Symantec, Sophos, and similar) run their sensor and protection engines as
+  one or more Windows services. While the core sensor services on a modern,
+  well-configured EDR are usually protected against tampering (PPL,
+  anti-tamper drivers, or tamper protection), adversaries routinely attempt
+  to stop them anyway - either because tamper protection is not enabled,
+  because an ancillary or management service is unprotected, or as a
+  low-effort first attempt before escalating to a driver-based approach.
+
+  The Service Control Manager exposes service-stop operations through several
+  surfaces: "sc.exe stop", "sc.exe config ... start= disabled", "net stop",
+  "powershell Stop-Service" / "Set-Service -StartupType Disabled", and the WMI
+  Win32_Service.StopService method invoked via wmic.exe or PowerShell. Each of
+  these spawns or drives a recognisable process with a command line
+  referencing a security product service name. Correlating execution of these
+  utilities against a curated list of EDR/AV service names produces a
+  high-fidelity signal that defence impairment is being attempted, regardless
+  of whether the stop actually succeeded.
+
+author: RustedRoberts
+updated: "2026-05-18"
+version: "1.2"
+
+# ---------------------------------------------------------------------------
+# ATT&CK mapping
+# ---------------------------------------------------------------------------
+tactics:
+  - Defense Evasion
+
+techniques:
+  - id: T1562.001
+    name: "Impair Defenses: Disable or Modify Tools"
+
+# ---------------------------------------------------------------------------
+# Scope
+# ---------------------------------------------------------------------------
+platforms:
+  - Windows Endpoint
+
+methodology: Signature
+maturity: Tuning
+signal: High
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceProcessEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceEvents
+    required: false
+
+# ---------------------------------------------------------------------------
+# Detection detail
+# ---------------------------------------------------------------------------
+whatYoullSee: |
+  In DeviceProcessEvents, a process creation for sc.exe, net.exe, net1.exe,
+  powershell.exe, pwsh.exe, or wmic.exe whose ProcessCommandLine contains both
+  a stop/disable verb (stop, "config ... start= disabled", Stop-Service,
+  "Set-Service ... Disabled", StopService) and one of the curated EDR/AV
+  service names (e.g. Sense, WinDefend, CSFalconService, SentinelAgent,
+  CarbonBlack, CybereasonActiveProbe, cyserver, TmListen).
+
+  A genuine attack typically shows this executed under a user or interactive
+  context rather than by a maintenance/orchestration parent, and is frequently
+  preceded or followed by other defence-evasion or discovery activity on the
+  same DeviceName within a short window (exclusion-list additions, AMSI/ETW
+  tampering, or the process-kill behaviour covered by the related hunt). The
+  Sense service (the Defender for Endpoint sensor) being targeted is
+  particularly notable, as a successful stop blinds the EDR that produces
+  this very telemetry - so corroborate with sensor-heartbeat gaps where
+  possible.
+
+  Where DeviceEvents is available, ActionType values relating to tamper
+  protection and service modification on the same host and timeframe provide
+  strong corroboration.
+
+  Remote-execution limitation: a remote "sc \\TARGET stop" or remote
+  Stop-Service runs the client utility only on the source host. On the target
+  the stop is actioned by the Service Control Manager (services.exe) itself,
+  so there is no sc.exe / net.exe process-creation event on the target device
+  and this hunt's query will not see it there. Detect the remote case on the
+  SOURCE host (sc.exe with an \\node argument) and corroborate on the target
+  via service-state-change / tamper telemetry and the EDR's sensor-health, or
+  via the related process-kill hunt if the adversary also used the
+  process-broker path.
+
+# ---------------------------------------------------------------------------
+# Triage and investigation
+# ---------------------------------------------------------------------------
+investigationSteps:
+  - "Identify the targeted service: confirm from ProcessCommandLine which security
+    product service was named, and whether the stop/disable succeeded (cross-check
+    the EDR console for the host's last check-in time and sensor health)."
+  - "Establish the initiating context: review InitiatingProcessFileName,
+    InitiatingProcessFolderPath, InitiatingProcessAccountName and the parent
+    process tree. A chain rooted in an interactive shell, a remote-management
+    tool, or a freshly written binary is a strong indicator; a known software
+    deployment/maintenance agent is a likely false positive."
+  - "Check intent: was this an isolated administrative action with a change
+    record, or one of several defence-evasion actions on the host? Pivot on
+    DeviceName for exclusion-list changes, AMSI/ETW tampering, or process-kill
+    activity within +/- 30 minutes."
+  - "Validate the operator account: does the AccountName legitimately perform
+    EDR maintenance, and was the activity expected per change management?
+    Confirm with the asset/service owner."
+  - "If unauthorised, isolate the host, restart and validate the security
+    service, and preserve process and command-line artefacts for the timeline
+    before remediation."
+
+falsePositives:
+  - Legitimate software deployment, patching, or EDR upgrade workflows that
+    cycle the security service as part of installation (e.g. SCCM/Intune,
+    vendor updaters). Scope these out by initiating process and known
+    maintenance accounts, not by suppressing the service name.
+  - IT administrators or support staff manually restarting a malfunctioning
+    agent during a documented troubleshooting session.
+  - Migration projects that intentionally disable a legacy AV service when
+    onboarding a replacement EDR. These are typically bulk, scheduled, and
+    change-controlled.
+  - Backup or imaging tooling that stops services to obtain a consistent
+    state.
+
+# ---------------------------------------------------------------------------
+# Curator notes
+# ---------------------------------------------------------------------------
+curatorNotes: |
+  Service-name list provenance: the curated list below was expanded using the
+  public ZephrFish/edr-checker recon script's $edr_list as a vendor-coverage
+  source, then converted into exact Windows service names per vendor. It is
+  NOT the raw edr-checker pattern list. The edr-checker script intentionally
+  uses broad substring matching (Select-String -Pattern) because it is
+  offensive recon where false positives are cheap; using those fragments
+  verbatim in a detection query would be actively harmful.
+
+  Deliberately excluded from the source list and why:
+    - Over-broad fragments ("defender", "sense", "sentinel", "malware",
+      "inspector", "canary", "monitor") - as substring matches these match
+      enormous volumes of unrelated command lines, and "sentinel" ironically
+      matches references to Microsoft Sentinel itself. Exact service names are
+      used instead.
+    - Non-EDR forensic/logging tooling (sysmon, wireshark, splunk, osquery,
+      SysInternals, amsi.dll) - killing these is also T1562.001 but has a
+      materially different false-positive profile (config reloads, forwarder
+      restarts, analysts closing tools). Tracked as a SEPARATE future hunt:
+      "Forensic and Logging Tool Termination" - do not fold it in here, as it
+      would force signal down from High.
+
+  Maturity is Tuning, not Production - the list still needs validation against
+  the security products actually deployed in the estate. Run a baseline query
+  against DeviceProcessEvents/registry to enumerate installed sensor service
+  names and prune/extend before promotion.
+
+  Detection deliberately does not require the stop to succeed - an Access
+  Denied on a tamper-protected service is still a true-positive attempt and is
+  arguably more interesting. Do not filter on outcome. Note that a
+  "sc.exe config" startup-type change does not stop the service immediately
+  and takes effect on reboot; the disable variant is retained intentionally.
+
+  Recommended pairing: operate alongside the process-kill hunt; correlate on
+  DeviceName and time. Consider a future enrichment query joining this signal
+  against EDR sensor-heartbeat absence to confirm successful blinding.
+
+  Remote-execution caveat (v1.2): this hunt is effectively LOCAL-only on the
+  target. A remote "sc \\TARGET stop", remote net stop, or remote Stop-Service
+  executes sc.exe/net.exe/powershell.exe on the SOURCE host only; the target's
+  services.exe (SCM) performs the actual stop with no client utility process
+  on the target. To catch the remote case, run this same query logic against
+  source-host telemetry and additionally alert on sc.exe command lines
+  containing an \\node / -ComputerName argument paired with a curated service
+  name. A target-side complement is service-state-change tamper telemetry
+  (DeviceEvents) plus EDR sensor-health gaps. This mirrors the remote-broker
+  limitation documented in the related process-kill hunt (where WmiPrvSE.exe /
+  wsmprovhost.exe are the on-target actors); the SCM has no equivalent single
+  broker image to key a query arm on, which is why this is handled as guidance
+  rather than an added arm.
+
+# ---------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------
+references:
+  - label: "MITRE ATT&CK: Impair Defenses - Disable or Modify Tools (T1562.001)"
+    url: https://attack.mitre.org/techniques/T1562/001/
+  - label: "MITRE ATT&CK: Impair Defenses (T1562)"
+    url: https://attack.mitre.org/techniques/T1562/
+  - label: "Microsoft Learn: Protect security settings with tamper protection"
+    url: https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
+  - label: "ZephrFish/edr-checker - vendor-coverage source for the curated list"
+    url: https://github.com/ZephrFish/edr-checker/blob/master/Invoke-EDRChecker.ps1
+  - label: "Red Canary Threat Detection Report: Disable or Modify Tools"
+    url: https://redcanary.com/threat-detection-report/techniques/disable-or-modify-tools/
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // -------------------------------------------------------------------
+      // EDR / AV service-stop via Service Control Manager
+      // Detects sc.exe / net.exe / PowerShell / WMI driving a stop or
+      // disable against a curated list of security-product service names.
+      // List expanded from ZephrFish/edr-checker (vendor coverage) and
+      // converted to EXACT service names - not the raw substring patterns.
+      // -------------------------------------------------------------------
+      let lookback = 7d;
+      // Curated EDR/AV Windows *service* names by vendor. Extend/prune per
+      // estate before promoting to Production.
+      let SecurityServiceNames = dynamic([
+          // --- Microsoft Defender ---
+          "Sense", "WinDefend", "WdNisSvc", "MsSecFlt",
+          "SecurityHealthService",
+          // --- CrowdStrike ---
+          "CSFalconService", "CSAgent",
+          // --- SentinelOne ---
+          "SentinelAgent", "SentinelStaticEngine", "SentinelHelperService",
+          "LogProcessorService",
+          // --- VMware Carbon Black ---
+          "CbDefense", "CbDefenseWSC", "carbonblack", "CarbonBlackK",
+          "cbstream",
+          // --- Cybereason ---
+          "CybereasonActiveProbe", "CybereasonAntiMalware",
+          "CybereasonCRS",
+          // --- Palo Alto Cortex XDR / Traps ---
+          "cyserver", "cyverak", "cyvrtp", "Traps", "CyveraService",
+          "tlaservice",
+          // --- Trellix / FireEye / McAfee ---
+          "xagt", "MfeAVSvc", "mfemms", "mfevtp", "macmnsvc",
+          // --- Trend Micro ---
+          "TmListen", "Ntrtscan", "TmCCSF", "tmbmsrv", "AMSP",
+          // --- Symantec / Broadcom ---
+          "SepMasterService", "SmcService", "SAVAdminService",
+          "ccSvcHst",
+          // --- Sophos ---
+          "Sophos Endpoint Defense Service", "SAVService",
+          "Sophos MCS Agent", "SntpService", "swi_service",
+          // --- ESET ---
+          "ekrn", "EraAgentSvc",
+          // --- SecureWorks Red Cloak ---
+          "redcloak", "ProcWall",
+          // --- Tanium ---
+          "Tanium Client",
+          // --- Fortinet FortiEDR ---
+          "FortiEDR Collector Service", "FortiEDRCollectorService",
+          // --- Morphisec ---
+          "MorphisecServiceAgent",
+          // --- Webroot ---
+          "WRSVC", "WRCoreService",
+          // --- IBM QRadar / LogRhythm endpoint ---
+          "scsm", "LogRhythm Agent"
+      ]);
+      // Stop / disable verbs across SCM surfaces.
+      let StopVerbs = dynamic([
+          "stop", "stop-service", "start= disabled", "startup disabled",
+          "set-service", "stopservice", "delete"
+      ]);
+      DeviceProcessEvents
+      | where Timestamp > ago(lookback)
+      | where FileName in~ ("sc.exe", "net.exe", "net1.exe",
+                            "powershell.exe", "pwsh.exe", "wmic.exe")
+      | extend CmdLower = tolower(ProcessCommandLine)
+      | where CmdLower has_any (StopVerbs)
+      | where CmdLower has_any (SecurityServiceNames)
+      // Reduce obvious query/inspection noise.
+      | where CmdLower !has "sc query"
+            and CmdLower !has "get-service"
+      // Treat a Set-Service line as relevant only when it disables startup.
+      | where not(CmdLower has "set-service" and CmdLower !has "disabled")
+      | project
+          Timestamp,
+          DeviceName,
+          AccountName,
+          ActionUtility       = FileName,
+          ProcessCommandLine,
+          InitiatingProcess   = InitiatingProcessFileName,
+          InitiatingPath      = InitiatingProcessFolderPath,
+          InitiatingAccount   = InitiatingProcessAccountName,
+          InitiatingProcessSHA256
+      | order by Timestamp desc
+
+# ---------------------------------------------------------------------------
+# Related hunts
+# ---------------------------------------------------------------------------
+relatedHunts:
+  - HL-012
+  - HL-011
