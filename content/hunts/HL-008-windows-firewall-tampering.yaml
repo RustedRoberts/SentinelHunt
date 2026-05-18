@@ -160,4 +160,4 @@ implementations:
       | order by TotalChanges desc                                                    // Highest volume first
 
 relatedHunts:
-  - HL-007
+  - HL-009

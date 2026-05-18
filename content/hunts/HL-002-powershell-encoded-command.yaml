@@ -125,4 +125,4 @@ implementations:
       | order by ParentRisk asc, Timestamp desc
 
 relatedHunts:
-  - HL-001
+  - HL-012

@@ -241,4 +241,6 @@ implementations:
       | order by Timestamp desc
 
 relatedHunts:
+  - HL-014
+  - HL-015
   - HL-011

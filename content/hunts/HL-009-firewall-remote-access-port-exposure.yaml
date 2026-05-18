@@ -175,4 +175,5 @@ implementations:
       | order by Timestamp desc
 
 relatedHunts:
+  - HL-008
   - HL-006
