@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
+import { allWorkInstructions } from '../lib/work-instructions'
+import type { WorkInstruction } from '../types/work-instruction'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -10,45 +12,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-interface PlaybookEntry {
-  id: string
-  title: string
-  trigger: string
-  relatedHunts: { id: string; label: string }[]
-  steps: string[]
-}
-
-const playbooks: PlaybookEntry[] = [
-  // Add investigation playbooks here. Example structure:
-  // {
-  //   id: 'INV-001',
-  //   title: 'Repeated Service Crashes — Device Log Investigation',
-  //   trigger: 'A hunt surfaces a high volume of service termination events across one or more endpoints.',
-  //   relatedHunts: [{ id: 'HL-001', label: 'HL-001 RDP Lateral Movement' }],
-  //   steps: [
-  //     'Identify the affected device(s) and the crashing service from hunt results.',
-  //     'Pull System event logs from the device: filter for Event ID 7034 (service crashed) and 7031 (unexpected termination).',
-  //     'Check Application logs for .NET or native exception records timestamped within ±5 minutes of each crash.',
-  //     'Review crash dump files under %SystemRoot%\\Minidump or %LocalAppData%\\CrashDumps.',
-  //     'Correlate with process creation events (Sysmon EID 1 or DeviceProcessEvents) to identify parent processes.',
-  //     'If a pattern emerges, pivot to the related hunt to determine whether lateral movement or persistence is involved.',
-  //   ],
-  // },
-]
-
-function PlaybookCard({ playbook }: { playbook: PlaybookEntry }) {
+function WorkInstructionCard({ wi }: { wi: WorkInstruction }) {
   return (
     <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-6 mb-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <span className="font-mono text-xs text-zinc-500 mr-2">{playbook.id}</span>
-          <h3 className="font-display text-lg font-semibold text-zinc-100 inline">{playbook.title}</h3>
+          <span className="font-mono text-xs text-zinc-500 mr-2">{wi.id}</span>
+          <h3 className="font-display text-lg font-semibold text-zinc-100 inline">{wi.title}</h3>
         </div>
       </div>
-      <p className="text-sm text-zinc-400 leading-relaxed mb-4">{playbook.trigger}</p>
-      {playbook.relatedHunts.length > 0 && (
+      <p className="text-sm text-zinc-400 leading-relaxed mb-4">{wi.trigger}</p>
+      {wi.relatedHunts.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {playbook.relatedHunts.map(({ id, label }) => (
+          {wi.relatedHunts.map(({ id, label }) => (
             <Link
               key={id}
               to={`/hunt/${id}`}
@@ -60,7 +36,7 @@ function PlaybookCard({ playbook }: { playbook: PlaybookEntry }) {
         </div>
       )}
       <ol className="list-decimal list-inside space-y-1.5">
-        {playbook.steps.map((step, i) => (
+        {wi.steps.map((step, i) => (
           <li key={i} className="text-sm text-zinc-300 leading-relaxed">{step}</li>
         ))}
       </ol>
@@ -73,20 +49,20 @@ export default function Investigation() {
     <Layout>
       <div className="max-w-3xl">
         <div className="mb-12">
-          <h1 className="font-display text-4xl font-bold text-zinc-100 mb-3">Investigation</h1>
+          <h1 className="font-display text-4xl font-bold text-zinc-100 mb-3">Work Instructions</h1>
           <p className="text-zinc-400 text-lg leading-relaxed">
-            Forensic investigation playbooks for scenarios surfaced by hunts in the library.
-            Each playbook describes the triggering condition, the device-level or log-level
+            Structured work instructions for investigative scenarios surfaced by hunts in the library.
+            Each instruction describes the triggering condition, the device-level or log-level
             evidence to gather, and a structured sequence of steps to reach a finding.
-            They are meant to be picked up mid-incident without prior context.
+            They are designed to be picked up mid-investigation without prior context.
           </p>
         </div>
 
-        <Section title="How to Use These Playbooks">
+        <Section title="How to Use These Work Instructions">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-5 text-sm text-zinc-400 leading-relaxed space-y-3">
             <p>
-              Each playbook is linked to one or more hunt library entries. When a hunt produces
-              results that warrant deeper device-level investigation, the relevant playbook
+              Each work instruction is linked to one or more hunt library entries. When a hunt produces
+              results that warrant deeper device-level investigation, the relevant work instruction
               describes exactly where to look and what to collect.
             </p>
             <p>
@@ -98,17 +74,17 @@ export default function Investigation() {
           </div>
         </Section>
 
-        <Section title="Playbooks">
-          {playbooks.length === 0 ? (
+        <Section title="Work Instructions">
+          {allWorkInstructions.length === 0 ? (
             <div className="bg-[#1a1a1a] border border-dashed border-[#2a2a2a] rounded-lg p-8 text-center">
-              <p className="text-zinc-500 text-sm">No investigation playbooks yet.</p>
+              <p className="text-zinc-500 text-sm">No work instructions yet.</p>
               <p className="text-zinc-600 text-xs mt-1">
-                Add entries to the <span className="font-mono">playbooks</span> array in{' '}
-                <span className="font-mono">src/pages/Investigation.tsx</span>.
+                Add <span className="font-mono">WI-XXX</span> YAML files to{' '}
+                <span className="font-mono">content/work-instructions/</span>.
               </p>
             </div>
           ) : (
-            playbooks.map(pb => <PlaybookCard key={pb.id} playbook={pb} />)
+            allWorkInstructions.map(wi => <WorkInstructionCard key={wi.id} wi={wi} />)
           )}
         </Section>
       </div>

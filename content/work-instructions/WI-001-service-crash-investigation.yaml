@@ -1,0 +1,14 @@
+id: WI-001
+title: Service Crash Investigation
+trigger: >
+  A hunt surfaces a high volume of service termination events across one or more endpoints.
+relatedHunts:
+  - id: HL-001
+    label: "HL-001 — RDP Lateral Movement from Non-Server Workstations"
+steps:
+  - Identify the affected device(s) and the crashing service from hunt results.
+  - "Pull System event logs from the device: filter for Event ID 7034 (service crashed) and 7031 (unexpected termination)."
+  - Check Application logs for .NET or native exception records timestamped within ±5 minutes of each crash.
+  - Review crash dump files under %SystemRoot%\Minidump or %LocalAppData%\CrashDumps.
+  - Correlate with process creation events (Sysmon EID 1 or DeviceProcessEvents) to identify parent processes and determine whether the crash was induced.
+  - If a pattern emerges across multiple devices, pivot to the related hunt to determine whether lateral movement or persistence is involved.

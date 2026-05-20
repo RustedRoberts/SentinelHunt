@@ -87,7 +87,7 @@ export default function Home() {
           Threat Hunting Library
         </h1>
         <p className="text-zinc-400 text-lg max-w-2xl">
-          Curated detection hypotheses, hunting queries, and investigation playbooks for
+          Curated detection hypotheses, hunting queries, and work instructions for
           Microsoft Sentinel and endpoint telemetry.
         </p>
       </div>
