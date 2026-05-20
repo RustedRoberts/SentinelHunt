@@ -3,6 +3,7 @@ import Home from './pages/Home'
 import HuntDetail from './pages/HuntDetail'
 import Coverage from './pages/Coverage'
 import Methodology from './pages/Methodology'
+import Investigation from './pages/Investigation'
 
 export default function App() {
   return (
@@ -10,6 +11,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/hunt/:id" element={<HuntDetail />} />
+        <Route path="/investigation" element={<Investigation />} />
         <Route path="/coverage" element={<Coverage />} />
         <Route path="/methodology" element={<Methodology />} />
       </Routes>
