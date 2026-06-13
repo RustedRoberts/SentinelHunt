@@ -33,18 +33,18 @@ hypothesis: |
   of whether the stop actually succeeded.
 
 author: RustedRoberts
-updated: "2026-05-18"
-version: "1.2"
+updated: "2026-06-13"
+version: "1.3"
 
 # ---------------------------------------------------------------------------
 # ATT&CK mapping
 # ---------------------------------------------------------------------------
 tactics:
-  - Defense Evasion
+  - Defense Impairment
 
 techniques:
-  - id: T1562.001
-    name: "Impair Defenses: Disable or Modify Tools"
+  - id: T1685
+    name: "Disable or Modify Tools"
 
 # ---------------------------------------------------------------------------
 # Scope
@@ -142,6 +142,11 @@ falsePositives:
 # Curator notes
 # ---------------------------------------------------------------------------
 curatorNotes: |
+  ATT&CK v19 remap (2026-06-13): MITRE ATT&CK v19 retired T1562 "Impair Defenses" and split
+  the Defense Evasion tactic into Stealth (TA0005) and the new Defense Impairment (TA0112).
+  T1562.001 was merged into the new parent technique T1685 "Disable or Modify Tools" under
+  Defense Impairment. Detection logic and scope are unchanged - this is a taxonomy-only update.
+
   Service-name list provenance: the curated list below was expanded using the
   public ZephrFish/edr-checker recon script's $edr_list as a vendor-coverage
   source, then converted into exact Windows service names per vendor. It is
@@ -196,10 +201,8 @@ curatorNotes: |
 # References
 # ---------------------------------------------------------------------------
 references:
-  - label: "MITRE ATT&CK: Impair Defenses - Disable or Modify Tools (T1562.001)"
-    url: https://attack.mitre.org/techniques/T1562/001/
-  - label: "MITRE ATT&CK: Impair Defenses (T1562)"
-    url: https://attack.mitre.org/techniques/T1562/
+  - label: "MITRE ATT&CK: Disable or Modify Tools (T1685)"
+    url: https://attack.mitre.org/techniques/T1685/
   - label: "Microsoft Learn: Protect security settings with tamper protection"
     url: https://learn.microsoft.com/en-gb/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection
   - label: "ZephrFish/edr-checker - vendor-coverage source for the curated list"

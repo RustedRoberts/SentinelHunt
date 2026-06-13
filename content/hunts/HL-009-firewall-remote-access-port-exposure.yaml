@@ -30,21 +30,21 @@ hypothesis: |
   exploitation rather than just preparation.
 
 author: RustedRoberts
-updated: "2026-05-03"
-version: "1.0"
+updated: "2026-06-13"
+version: "1.1"
 
 tactics:
-  - Defence Evasion
+  - Defense Impairment
 
 techniques:
-  - id: T1562.004
-    name: "Impair Defences: Disable or Modify System Firewall"
+  - id: T1686.003
+    name: "Disable or Modify System Firewall: Windows Host Firewall"
 
 platforms:
   - Windows
 
 methodology: Signature
-maturity: Validated
+maturity: Experimental
 signal: High
 
 dataSources:
@@ -101,6 +101,12 @@ falsePositives:
     expose services for testing purposes.
 
 curatorNotes: |
+  ATT&CK v19 remap (2026-06-13): MITRE ATT&CK v19 retired T1562 "Impair Defenses" and split
+  the Defense Evasion tactic into Stealth (TA0005) and the new Defense Impairment (TA0112).
+  T1562.004 "Disable or Modify System Firewall" was revoked and reissued as T1686, with this
+  hunt's Windows-specific scope now mapped to T1686.003 "Windows Host Firewall" under Defense
+  Impairment. Detection logic and scope are unchanged - this is a taxonomy-only update.
+
   Signal is rated High because inbound-allow rules for remote-access ports are a
   high-fidelity indicator of post-exploitation intent — the false positive surface is
   narrow compared to the broad firewall tampering hunt in HL-006. The primary tuning
@@ -120,8 +126,8 @@ curatorNotes: |
   that produce different command-line formats, the regex may need extending.
 
 references:
-  - label: "MITRE ATT&CK: Impair Defences — Disable or Modify System Firewall (T1562.004)"
-    url: https://attack.mitre.org/techniques/T1562/004/
+  - label: "MITRE ATT&CK: Disable or Modify System Firewall — Windows Host Firewall (T1686.003)"
+    url: https://attack.mitre.org/techniques/T1686/003/
   - label: "Atomic Red Team: T1562.004 test cases"
     url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
   - label: "Microsoft: Windows Defender Firewall with Advanced Security"
