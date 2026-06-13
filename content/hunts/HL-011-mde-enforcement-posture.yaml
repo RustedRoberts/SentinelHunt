@@ -40,24 +40,24 @@ hypothesis: |
   any change to the branch order changes the classification of overlapping ActionType
   values.
 author: RustedRoberts
-updated: "2026-05-16"
-version: "1.0"
+updated: "2026-06-13"
+version: "1.1"
 
 # ---------------------------------------------------------------------------
 # ATT&CK mapping
 # ---------------------------------------------------------------------------
 # Note: this hunt aggregates many controls. The two mappings below reflect the
-# hunt's PRIMARY analytic value: T1562.001 covers the Tamper Protection signal
+# hunt's PRIMARY analytic value: T1685 covers the Tamper Protection signal
 # and the "control is silently absent" baseline finding; T1003.001 covers the
 # headline detection variant (LSASS credential-theft prevention). Individual
 # ActionType leads may map to other techniques on a case-by-case basis.
 tactics:
-  - Defense Evasion
+  - Defense Impairment
   - Credential Access
 
 techniques:
-  - id: T1562.001
-    name: "Impair Defenses: Disable or Modify Tools"
+  - id: T1685
+    name: "Disable or Modify Tools"
   - id: T1003.001
     name: "OS Credential Dumping: LSASS Memory"
 
@@ -177,6 +177,12 @@ falsePositives:
 # Curator notes
 # ---------------------------------------------------------------------------
 curatorNotes: |
+  ATT&CK v19 remap (2026-06-13): MITRE ATT&CK v19 retired T1562 "Impair Defenses" and split
+  the Defense Evasion tactic into Stealth (TA0005) and the new Defense Impairment (TA0112).
+  T1562.001 was merged into the new parent technique T1685 "Disable or Modify Tools" under
+  Defense Impairment. T1003.001 (Credential Access) is unaffected by this change. Detection
+  logic and scope are unchanged - this is a taxonomy-only update.
+
   Provenance: the classification logic is adapted from Kostas Koutroumpouchos'
   "Getting to know MDE Part 2" (kostaskoutrou.github.io, 2026-01-06). The original
   query is a single-device assurance check; this hunt generalises it to an estate-wide
@@ -222,8 +228,8 @@ curatorNotes: |
 references:
   - label: "Kostas SecBlog - Using KQL to identify detections from MDE (Getting to know MDE Part 2)"
     url: https://kostaskoutrou.github.io/2026/01/06/using-kql-for-mde.html
-  - label: "MITRE ATT&CK - Impair Defenses: Disable or Modify Tools (T1562.001)"
-    url: https://attack.mitre.org/techniques/T1562/001/
+  - label: "MITRE ATT&CK - Disable or Modify Tools (T1685)"
+    url: https://attack.mitre.org/techniques/T1685/
   - label: "MITRE ATT&CK - OS Credential Dumping: LSASS Memory (T1003.001)"
     url: https://attack.mitre.org/techniques/T1003/001/
   - label: "Microsoft - Defender for Endpoint documentation"
