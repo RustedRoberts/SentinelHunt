@@ -5,6 +5,7 @@ const links = [
   { to: '/investigation', label: 'Investigation' },
   { to: '/coverage', label: 'Coverage' },
   { to: '/methodology', label: 'Methodology' },
+  { to: '/blog', label: 'Blog' },
 ]
 
 function LinkedInIcon() {
