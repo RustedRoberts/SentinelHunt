@@ -34,7 +34,7 @@ platforms:
   - Windows
 
 methodology: Signature
-maturity: Validated
+maturity: Experimental
 signal: Medium
 
 dataSources:

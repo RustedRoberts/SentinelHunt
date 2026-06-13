@@ -72,7 +72,7 @@ methodology: Behavioural          # Baseline/assurance variant is closer to Anom
                                   # (deviation from expected enforcement volume); the
                                   # focused variant is Signature (specific ActionType
                                   # values are themselves the indicator).
-maturity: Validated               # Honest assessment: the raw classification is sound,
+maturity: Experimental            # Honest assessment: the raw classification is sound,
                                   # but the anomaly thresholds (what counts as a
                                   # "gap" or a "spike") are environment-specific and
                                   # not yet calibrated. Not Production until baselined.
