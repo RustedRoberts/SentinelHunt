@@ -54,3 +54,46 @@
 .shiki code {
   background: none !important;
 }
+
+.smoke-bg {
+  --smoke-x: 50%;
+  --smoke-y: 50%;
+}
+
+.smoke-layer {
+  position: absolute;
+  inset: -20%;
+  opacity: 0.5;
+  filter: blur(60px);
+  mix-blend-mode: screen;
+}
+
+.smoke-layer-1 {
+  background: radial-gradient(
+    600px circle at var(--smoke-x) var(--smoke-y),
+    rgba(212, 255, 63, 0.10),
+    transparent 65%
+  );
+  transition: background-position 0.2s ease-out;
+}
+
+.smoke-layer-2 {
+  background: radial-gradient(
+    900px circle at var(--smoke-x) var(--smoke-y),
+    rgba(120, 130, 255, 0.06),
+    transparent 70%
+  );
+  animation: smoke-drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes smoke-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, -2%, 0) scale(1.05);
+  }
+  100% {
+    transform: translate3d(-2%, 2%, 0) scale(1);
+  }
+}
