@@ -40,15 +40,15 @@ hypothesis: |
   Intune/compliance coverage, where a legitimate unenrolled device is
   otherwise indistinguishable from an attacker device.
 author: RustedRoberts
-updated: "2026-05-16"
-version: "1.0"
+updated: "2026-06-13"
+version: "1.1"
 
 # ---------------------------------------------------------------------------
 # ATT&CK mapping
 # ---------------------------------------------------------------------------
 tactics:
   - Initial Access
-  - Defense Evasion
+  - Stealth
 
 techniques:
   - id: T1078.004
@@ -175,6 +175,12 @@ falsePositives:
 # Curator notes
 # ---------------------------------------------------------------------------
 curatorNotes: |
+  ATT&CK v19 remap (2026-06-13): MITRE ATT&CK v19 retired the "Defense Evasion" tactic name,
+  splitting it into Stealth (which keeps tactic ID TA0005) and the new Defense Impairment
+  (TA0112). T1078 and T1078.004 remain mapped to Stealth/TA0005, so the technique IDs are
+  unchanged - only the tactic label is updated. Detection logic and scope are unchanged -
+  this is a taxonomy-only update.
+
   Maturity is Experimental: the factor weights below are a reasoned starting
   point, NOT empirically calibrated for any specific tenant. They must be
   tuned against a labelled set of known-good and known-bad sign-ins before

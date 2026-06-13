@@ -32,21 +32,21 @@ hypothesis: |
   modifications.
 
 author: RustedRoberts
-updated: "2026-05-03"
-version: "1.0"
+updated: "2026-06-13"
+version: "1.1"
 
 tactics:
-  - Defence Evasion
+  - Defense Impairment
 
 techniques:
-  - id: T1562.004
-    name: "Impair Defences: Disable or Modify System Firewall"
+  - id: T1686.003
+    name: "Disable or Modify System Firewall: Windows Host Firewall"
 
 platforms:
   - Windows
 
 methodology: Behavioural
-maturity: Validated
+maturity: Experimental
 signal: Medium
 
 dataSources:
@@ -98,6 +98,12 @@ falsePositives:
     environments without centralised firewall policy management.
 
 curatorNotes: |
+  ATT&CK v19 remap (2026-06-13): MITRE ATT&CK v19 retired T1562 "Impair Defenses" and split
+  the Defense Evasion tactic into Stealth (TA0005) and the new Defense Impairment (TA0112).
+  T1562.004 "Disable or Modify System Firewall" was revoked and reissued as T1686, with this
+  hunt's Windows-specific scope now mapped to T1686.003 "Windows Host Firewall" under Defense
+  Impairment. Detection logic and scope are unchanged - this is a taxonomy-only update.
+
   This hunt is at Tuning maturity. The primary tuning requirement is building an exclusion
   list of known-legitimate initiating processes by SHA256 hash (not filename, to prevent
   exclusion bypass via renamed binaries). The `ProcessIntegrityLevel != "System"` filter
@@ -114,8 +120,8 @@ curatorNotes: |
   enterprise environments means the raw signal-to-noise ratio requires analyst judgement.
 
 references:
-  - label: "MITRE ATT&CK: Impair Defences — Disable or Modify System Firewall (T1562.004)"
-    url: https://attack.mitre.org/techniques/T1562/004/
+  - label: "MITRE ATT&CK: Disable or Modify System Firewall — Windows Host Firewall (T1686.003)"
+    url: https://attack.mitre.org/techniques/T1686/003/
   - label: "Atomic Red Team: T1562.004 test cases"
     url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
   - label: "Microsoft: Windows Defender Firewall with Advanced Security"
