@@ -1,0 +1,312 @@
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+id: HL-016
+title: AiTM Session Cookie Replay - Cross-Device Sign-In Fingerprint Drift
+summary: >
+  Detects Adversary-in-the-Middle (AiTM) session cookie theft by finding a
+  single Entra ID sign-in session (SessionId) whose sign-in events span more
+  than one device, browser, operating system, IP address, or country within a
+  short time window. A legitimate user's session token stays on the device
+  and browser that requested it; the same token appearing from a second
+  fingerprint shortly afterwards is the signature of a stolen-and-replayed
+  session cookie, the technique behind phishing kits such as Tycoon 2FA and
+  Sneaky 2FA.
+
+hypothesis: |
+  AiTM phishing-as-a-service kits (Tycoon 2FA, Sneaky 2FA, Evilginx-derived
+  proxies) sit between the victim and Entra ID, relaying the real
+  authentication flow - including MFA - and capturing the resulting session
+  cookie/token once the victim completes sign-in. The operator then imports
+  that cookie into their own browser session and resumes the user's
+  authenticated session directly against Microsoft 365, without needing the
+  password or a second MFA prompt.
+
+  The session identifier issued by Entra ID (`SessionId`) is bound to the
+  token, not to the device that requested it. When the operator replays the
+  stolen cookie, Entra ID logs a new sign-in event carrying the SAME
+  `SessionId` as the victim's original sign-in, but with a different
+  `EntraIdDeviceId`, `Browser`, `OSPlatform`, `UserAgent`, `IPAddress`, and
+  often `Country`. This is physically distinct from normal user behaviour: a
+  human does not authenticate once on their laptop and, minutes later, the
+  exact same session token re-appears from an unrelated device on a
+  different continent.
+
+  This hunt groups sign-in events by `SessionId` + `AccountUpn` over a short
+  evaluation window and flags any session that exhibits more than one
+  distinct device/browser/OS fingerprint AND more than one distinct IP
+  address or country. The combination of "same session token, different
+  fingerprint, short time gap" is the high-fidelity signal - each element
+  alone (new device, new IP, new country) is common and benign; their
+  co-occurrence on a single session identifier is not.
+
+  Built on `EntraIdSignInEvents`, the table that replaced the preview
+  `AADSignInEventsBeta` on 9 December 2025 (Microsoft Entra ID P2 required).
+  This is distinct from, and complementary to, the `SigninLogs`-based
+  per-user behavioural baseline in HL-010 - that hunt looks for anomalies
+  relative to a user's history; this hunt looks for an internal
+  inconsistency within a single session, with no baseline required.
+
+author: RustedRoberts
+updated: "2026-06-14"
+version: "1.0"
+
+# ---------------------------------------------------------------------------
+# ATT&CK mapping
+# ---------------------------------------------------------------------------
+tactics:
+  - Credential Access
+  - Stealth
+
+techniques:
+  - id: T1539
+    name: "Steal Web Session Cookie"
+  - id: T1078.004
+    name: "Valid Accounts: Cloud Accounts"
+
+# ---------------------------------------------------------------------------
+# Scope
+# ---------------------------------------------------------------------------
+platforms:
+  - Azure AD / Entra ID
+
+methodology: Behavioural
+maturity: Experimental
+signal: High
+
+# ---------------------------------------------------------------------------
+# Data sources
+# ---------------------------------------------------------------------------
+dataSources:
+  - product: Microsoft Entra ID
+    table: EntraIdSignInEvents
+    required: true
+
+# ---------------------------------------------------------------------------
+# Detection detail
+# ---------------------------------------------------------------------------
+whatYoullSee: |
+  A true positive is a `SessionId` (and `AccountUpn`) for which sign-in
+  events occur from more than one distinct device/browser/OS fingerprint
+  AND more than one distinct IP address or country, all within
+  `maxFingerprintGapHours` of each other.
+
+  Typical pattern for AiTM session-cookie theft:
+
+  - First event: the victim's genuine sign-in, e.g. `EntraIdDeviceId`
+    matching their managed laptop, `Browser` = "Edge 124", `Country` = "GB",
+    `IPAddress` on the corporate egress range, `ConditionalAccessStatus` = 0
+    (policies applied, MFA satisfied).
+  - Second event (minutes to a few hours later): the SAME `SessionId`,
+    `EntraIdDeviceId` empty or different, `Browser`/`OSPlatform` different
+    (often a generic "Chrome"/"Linux" signature from the attacker's VPS),
+    `IPAddress` and `Country` different - frequently a hosting/VPS ASN rather
+    than a residential or corporate range, and `ConditionalAccessStatus` may
+    show policies were NOT re-evaluated because the token was already issued.
+
+  Results include `DistinctFingerprints`, `DistinctIPs`, `DistinctCountries`,
+  the `Severity` classification (Critical when countries differ, High when
+  IPs and devices both differ within one country, Medium otherwise), and the
+  `make_set` arrays of every IP/country/device/browser/OS/application seen
+  for that session - this gives the analyst the full picture of the session
+  without a follow-up query.
+
+# ---------------------------------------------------------------------------
+# Triage and investigation
+# ---------------------------------------------------------------------------
+investigationSteps:
+  - "Confirm the SessionId is genuinely shared: pull the raw EntraIdSignInEvents
+    rows for this SessionId and AccountUpn and review CorrelationId,
+    ReportId, and Timestamp for each - rule out a logging artefact before
+    treating this as token replay."
+  - "Compare the two (or more) fingerprints side by side: EntraIdDeviceId,
+    OSPlatform, Browser, UserAgent, IPAddress, Country, and
+    ConditionalAccessStatus. A managed/compliant device followed by an
+    unmanaged device with a generic browser string and a hosting-provider IP
+    is the canonical AiTM pattern."
+  - "Check ResourceDisplayName / Apps for both events: AiTM replay typically
+    targets Exchange Online, SharePoint, or the Microsoft Graph shortly after
+    the cookie is captured - mailbox and file access from the second
+    fingerprint is the highest-priority follow-up."
+  - "Pivot to AuditLogs / CloudAppEvents for the AccountUpn in the hour
+    following the second fingerprint's first appearance: look for mailbox
+    rule creation, OAuth app consents, mass downloads, or forwarding rule
+    changes - these are the actions the stolen session is typically used
+    for."
+  - "Check IPAddress / ASN reputation for the second fingerprint against
+    threat intelligence - AiTM relay infrastructure is frequently hosted on
+    commodity VPS providers and may already be flagged."
+  - "If confirmed: revoke all refresh tokens and sessions for the account
+    (`Revoke-MgUserSignInSession` or the Entra portal 'Revoke sessions'
+    action), force a password reset, and re-register MFA. Session revocation
+    is the only effective remediation - a password reset alone does not
+    invalidate a stolen session cookie."
+  - "Review the original phishing vector: search Defender for Office 365 /
+    CloudAppEvents for the inbound message or link that preceded the
+    victim's first sign-in in this session - identify and remediate the lure
+    for other recipients."
+
+falsePositives:
+  - "Corporate VPN or proxy infrastructure that legitimately changes the
+    egress IP/country mid-session (e.g. split-tunnel VPN reconnecting via a
+    different regional exit node). Scope by reviewing whether the new IP
+    belongs to known corporate VPN ranges - add these to an allow-list by
+    ASN/CIDR rather than suppressing the whole hunt."
+  - "Mobile users moving between Wi-Fi and cellular network mid-session,
+    which can change IPAddress and occasionally the resolved Country for
+    users near a border, while DeviceId/Browser/OS remain constant. This
+    hunt requires BOTH a fingerprint change (device/browser/OS) AND an
+    IP/country change, which substantially reduces this false-positive
+    class - a pure network change alone will not fire."
+  - "Shared kiosk or virtual desktop infrastructure (VDI/Citrix/AVD) where
+    multiple physical endpoints present as the same session under a shared
+    or pooled device identity. Baseline known VDI device IDs and exclude
+    them, or move VDI populations to a separate, tuned variant of this hunt."
+  - "Browser-in-browser federation flows and certain legitimate cross-app SSO
+    handoffs can momentarily present a different ClientAppUsed/Browser value
+    for the same session. If this is observed at volume for a specific
+    ResourceDisplayName, add a scoped exclusion for that application rather
+    than for the account or tenant-wide."
+
+# ---------------------------------------------------------------------------
+# Curator notes
+# ---------------------------------------------------------------------------
+curatorNotes: |
+  New table (2026-06-14): this hunt is built on `EntraIdSignInEvents`, which
+  replaced the preview `AADSignInEventsBeta` table on 9 December 2025 to
+  remove its preview status and align naming with the rest of the product.
+  `AADSignInEventsBeta` continued to coexist for a transition period but
+  should now be considered retired - if adapting an older AADSignInEventsBeta
+  query, repoint it at `EntraIdSignInEvents`; column names are unchanged.
+  `EntraIdSignInEvents` requires a Microsoft Entra ID P2 licence and is queried
+  via Defender XDR Advanced Hunting, NOT the `SigninLogs` table used by
+  HL-010 in Sentinel Log Analytics - the two are complementary, not
+  interchangeable, and a tenant without Defender XDR onboarded will not have
+  this table available.
+
+  Boolean field heads-up: Microsoft is changing several advanced-hunting
+  boolean columns from numeric (1/0) to textual (True/False) from 25 February
+  2026. `IsConfidentialClient` and `IsGuestUser` on this table are typed as
+  `boolean` and may be affected; `IsManaged`, `IsCompliant`, and
+  `IsExternalUser` are typed `int` and are not part of that change. This hunt
+  does not currently filter on any of those fields, so it is unaffected, but
+  flagged here for anyone extending the query.
+
+  Why SessionId and not CorrelationId: `CorrelationId` is unique per sign-in
+  REQUEST and will always differ between the victim's and the operator's
+  events - it cannot be used to link them. `SessionId` is the value carried
+  by the session token itself and is therefore the field that is identical
+  across the legitimate sign-in and the replayed-cookie sign-in. This
+  distinction is the crux of the detection and is easy to get backwards.
+
+  `maxFingerprintGapHours` (default 12h) is a deliberately generous window:
+  AiTM kits typically relay the cookie within minutes, but operators have
+  been observed delaying reuse to evade time-correlated detections. Widening
+  this window increases recall but also increases the chance of catching
+  benign VPN/roaming changes that happen to coincide with a fingerprint
+  change for unrelated reasons - tune against the false-positive classes
+  above before promoting.
+
+  Maturity is Experimental: validate against a sample of known-benign
+  multi-fingerprint sessions in your tenant (VDI, VPN populations) before
+  promoting to a scheduled analytics rule. Pair with HL-010 - a session
+  flagged here that ALSO drove a high score in HL-010's per-user baseline is
+  very high confidence.
+
+# ---------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------
+references:
+  - label: "MITRE ATT&CK: Steal Web Session Cookie (T1539)"
+    url: https://attack.mitre.org/techniques/T1539/
+  - label: "MITRE ATT&CK: Valid Accounts - Cloud Accounts (T1078.004)"
+    url: https://attack.mitre.org/techniques/T1078/004/
+  - label: "Microsoft Learn: EntraIdSignInEvents table - advanced hunting schema"
+    url: https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-entraidsigninevents-table
+  - label: "Microsoft Learn: Naming changes in the Defender XDR advanced hunting schema"
+    url: https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-schema-changes
+  - label: "Sekoia.io: Sneaky 2FA - exposing a new AiTM Phishing-as-a-Service"
+    url: https://blog.sekoia.io/sneaky-2fa-exposing-a-new-aitm-phishing-as-a-service/
+  - label: "eye.security: Sneaky 2FA - use this KQL query to stay ahead of the emerging threat"
+    url: https://www.eye.security/blog/sneaky2fa-use-this-kql-query-to-stay-ahead-of-the-emerging-threat
+
+# ---------------------------------------------------------------------------
+# Implementations
+# ---------------------------------------------------------------------------
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // ===================================================================
+      // AiTM Session Cookie Replay - Cross-Device Fingerprint Drift
+      // -------------------------------------------------------------------
+      // A stolen-and-replayed session cookie produces a second sign-in
+      // event under the SAME SessionId but from a different device,
+      // browser, OS, IP address, and/or country. Group by SessionId +
+      // AccountUpn and flag sessions whose fingerprint is internally
+      // inconsistent within a short time span.
+      // ===================================================================
+      // --- Tunable parameters -------------------------------------------
+      let lookback                = 1d;    // evaluation window
+      let maxFingerprintGapHours  = 12h;    // max span between first/last event to still flag
+      EntraIdSignInEvents
+      | where Timestamp > ago(lookback)
+      | where ErrorCode == 0                          // successful sign-ins only
+      | where isnotempty(SessionId) and isnotempty(AccountUpn)
+      // A "fingerprint" is the device/browser/OS combination presenting the token.
+      | extend FingerprintKey = strcat(
+            tostring(EntraIdDeviceId), "|",
+            tostring(OSPlatform), "|",
+            tostring(Browser))
+      | summarize
+            Events               = count(),
+            FirstSeen            = min(Timestamp),
+            LastSeen             = max(Timestamp),
+            DistinctFingerprints = dcount(FingerprintKey),
+            DistinctIPs          = dcount(IPAddress),
+            DistinctCountries    = dcount(Country),
+            DistinctDevices      = dcount(EntraIdDeviceId),
+            IPs                  = make_set(IPAddress, 10),
+            Countries            = make_set(Country, 10),
+            Devices              = make_set(EntraIdDeviceId, 10),
+            Browsers             = make_set(Browser, 10),
+            OSPlatforms          = make_set(OSPlatform, 10),
+            Apps                 = make_set(ResourceDisplayName, 10),
+            CAStatuses           = make_set(ConditionalAccessStatus, 5)
+          by SessionId, AccountUpn
+      | extend SessionSpan = LastSeen - FirstSeen
+      | where SessionSpan <= maxFingerprintGapHours
+      // Require BOTH a fingerprint change AND a network-location change -
+      // either alone is common and benign (see falsePositives).
+      | where DistinctFingerprints > 1
+            and (DistinctIPs > 1 or DistinctCountries > 1)
+      | extend Severity = case(
+            DistinctCountries > 1, "Critical",
+            DistinctIPs > 1 and DistinctDevices > 1, "High",
+            "Medium")
+      | project
+            AccountUpn,
+            SessionId,
+            Severity,
+            FirstSeen,
+            LastSeen,
+            SessionSpan,
+            Events,
+            DistinctFingerprints,
+            DistinctIPs,
+            DistinctCountries,
+            Countries,
+            IPs,
+            Devices,
+            Browsers,
+            OSPlatforms,
+            Apps,
+            CAStatuses
+      | order by Severity asc, SessionSpan asc
+
+# ---------------------------------------------------------------------------
+# Related hunts
+# ---------------------------------------------------------------------------
+relatedHunts:
+  - HL-010
+  - HL-004
