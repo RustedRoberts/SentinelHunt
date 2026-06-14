@@ -60,35 +60,458 @@ playbook.
 
 ## What You Can Hunt Right Now
 
-The `AIAgentsInfo` table is the starting point. It surfaces agent identity,
-last activity, owner, runtime, status, and connected MCP server
-configuration. The immediate wins are posture-based - finding the
-misconfigured agents before an attacker does.
+Most organisations I speak to have started thinking about AI governance from a user behaviour angle - who's prompting what, and what's coming back. Fewer are looking at the agents themselves; what they're configured to reach out to, and whether anyone actually knows.
 
-This query identifies agents whose MCP servers are operating over HTTP rather
-than HTTPS, a straightforward configuration risk on any network where an
-attacker has any foothold:
+This query is an attempt to close that gap.
+
+It works across three surfaces inside AIAgentsInfo: knowledge source URLs pulled from structured JSON in KnowledgeDetails, external endpoints extracted via regex from raw agent configuration in RawAgentInfo and AgentActionTriggers, and MCP server connections identified from AgentToolsDetails.
+
+Microsoft-owned domains and known template placeholders are filtered out to keep the results meaningful, and everything is scoped to Published agents so you're looking at what's reachable right now rather than drafts. Results collapse to one row per AIAgentId using make_set(), which preserves the full external source list per agent without the noise of repeated rows. Grouping by ID rather than name is deliberate - if two agents share a display name but have different IDs, they'll appear separately, which is a useful property when you're trying to spot agents that shouldn't exist.
 
 ```kql
-AIAgentsInfo
-| where McpServerUrl startswith "http://"
-| project AIAgentId, AIAgentName, AIModel, McpServerUrl, AgentOwner, AgentCreationTime
-| order by AgentCreationTime asc
+// ============================================================
+// HUNT: AI Agent External Sources - Active Agents Only
+// ============================================================
+// Purpose: Scope the external source hunt to agents that are
+//          actively reachable - Published status only.
+//          Reduces noise during triage by excluding draft agents
+//          that cannot currently be interacted with.
+//          Use this as the starting point when triaging findings
+//          for immediate risk rather than full inventory coverage.
+//
+// Tables:  AIAgentsInfo
+// ============================================================
+
+let MicrosoftDomains = dynamic([
+    "microsoft.com", "azure.com", "windows.net", "dynamics.com",
+    "sharepoint.com", "office.com", "microsoftonline.com",
+    "powerplatform.com", "copilotstudio.microsoft.com",
+    "adaptivecards.io", "aka.ms", "m365.cloud.microsoft",
+    "azurefd.net"
+]);
+let TemplateDomains = dynamic([
+    "contoso.com", "contoso.sharepoint.com"
+]);
+// ---------------------------------------------------------------
+// Pre-filter to active agents only before any expensive parsing
+// ---------------------------------------------------------------
+let ActiveAgents =
+    AIAgentsInfo
+    | where AgentStatus == "Published";
+// ---------------------------------------------------------------
+// Arm 1: Knowledge source URLs
+// ---------------------------------------------------------------
+let KnowledgeSources =
+    ActiveAgents
+    | where isnotempty(KnowledgeDetails)
+    | extend KD = parse_json(KnowledgeDetails)
+    | mv-expand Site = KD.spec.knowledgeSources.publicSites
+    | extend ExtractedUrl = tostring(Site.url)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "KnowledgeSource",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 2: HttpRequest action URLs
+// ---------------------------------------------------------------
+let HttpActionUrls =
+    ActiveAgents
+    | where isnotempty(RawAgentInfo) or isnotempty(AgentActionTriggers)
+    | extend CombinedRaw = strcat(tostring(RawAgentInfo), tostring(AgentActionTriggers))
+    | extend UrlMatches = extract_all(@"(https?://[^\s'""\\<>]{8,})", CombinedRaw)
+    | mv-expand ExtractedUrl = UrlMatches to typeof(string)
+    | extend ExtractedUrl = trim_end(@"[)\.,\\rn]+", ExtractedUrl)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | where ExtractedUrl !startswith "https://<"
+    | where ExtractedUrl !startswith "https://..."
+    | distinct
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "HttpRequestAction",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 3: MCP servers
+// ---------------------------------------------------------------
+let McpServers =
+    ActiveAgents
+    | where isnotempty(AgentToolsDetails)
+    | extend ToolsJson = parse_json(AgentToolsDetails)
+    | mv-expand Tool = ToolsJson
+    | where tostring(Tool["$kind"]) == "TaskDialog"
+    | extend McpName = tostring(Tool.modelDisplayName)
+    | extend ConnRef = tostring(Tool.action.connectionReference)
+    | extend OpId = tostring(Tool.action.operationDetails.operationId)
+    | where isnotempty(OpId)
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "McpServer",
+        ExtractedValue = strcat(McpName, " | connRef: ", ConnRef, " | opId: ", OpId);
+// ---------------------------------------------------------------
+// Union and collapse to one row per AIAgentId
+// Summarising by AIAgentId rather than AIAgentName intentionally -
+// a mimic agent sharing a legitimate agent's name will have a
+// different AIAgentId and appear as a separate row
+// ---------------------------------------------------------------
+union KnowledgeSources, HttpActionUrls, McpServers
+| summarize
+    AIAgentName         = take_any(AIAgentName),
+    TenantId            = take_any(TenantId),
+    CreatorAccountUpn   = take_any(CreatorAccountUpn),
+    OwnerAccountUpns    = take_any(OwnerAccountUpns),
+    AgentCreationTime   = take_any(AgentCreationTime),
+    LastPublishedTime   = take_any(LastPublishedTime),
+    SourceTypes         = make_set(SourceType),
+    ExternalSources     = make_set(ExtractedValue),
+    ExternalSourceCount = dcount(ExtractedValue)
+    by AIAgentId
+| extend
+    NoOwner          = isempty(OwnerAccountUpns) or OwnerAccountUpns == "[]",
+    DaysSincePublish = datetime_diff('day', now(), todatetime(LastPublishedTime))
+| project
+    AIAgentId,
+    AIAgentName,
+    TenantId,
+    AgentCreationTime,
+    LastPublishedTime,
+    DaysSincePublish,
+    CreatorAccountUpn,
+    OwnerAccountUpns,
+    NoOwner,
+    ExternalSourceCount,
+    SourceTypes,
+    ExternalSources
+| order by DaysSincePublish desc, AIAgentName asc
+
 ```
 
-Agents owned by departed users are an immediate deprovisioning gap.
-Cross-referencing against Entra ID sign-in activity surfaces these quickly:
+We can also broaden this further and map out where child agent relationships exist.
+
+This query below does much of what the above does, but expands this out further. The result is a single collapsed row per agent showing not just what external data it reaches, but how far that data could travel if the agent were manipulated through a poisoned source. Sort by score descending to prioritise agents with the broadest potential blast radius.
+
+```kql
+
+// ============================================================
+// HUNT: AI Agent External Sources - Topology
+// ============================================================
+// Purpose: Map agents with external data sources alongside their
+//          connected and child agent relationships. An agent that
+//          both reaches external sources AND can invoke child agents
+//          represents a higher blast radius - external data can
+//          propagate through the agent graph.
+//
+// Tables:  AIAgentsInfo
+// ============================================================
+
+let MicrosoftDomains = dynamic([
+    "microsoft.com", "azure.com", "windows.net", "dynamics.com",
+    "sharepoint.com", "office.com", "microsoftonline.com",
+    "powerplatform.com", "copilotstudio.microsoft.com",
+    "adaptivecards.io", "aka.ms", "m365.cloud.microsoft",
+    "azurefd.net"
+]);
+let TemplateDomains = dynamic([
+    "contoso.com", "contoso.sharepoint.com"
+]);
+// ---------------------------------------------------------------
+// Arm 1: Knowledge source URLs
+// ---------------------------------------------------------------
+let KnowledgeSources =
+    AIAgentsInfo
+    | where isnotempty(KnowledgeDetails)
+    | extend KD = parse_json(KnowledgeDetails)
+    | mv-expand Site = KD.spec.knowledgeSources.publicSites
+    | extend ExtractedUrl = tostring(Site.url)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        AgentStatus,
+        ConnectedAgentsSchemaNames = tostring(ConnectedAgentsSchemaNames),
+        ChildAgentsSchemaNames     = tostring(ChildAgentsSchemaNames),
+        SourceType = "KnowledgeSource",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 2: HttpRequest action URLs
+// ---------------------------------------------------------------
+let HttpActionUrls =
+    AIAgentsInfo
+    | where isnotempty(RawAgentInfo) or isnotempty(AgentActionTriggers)
+    | extend CombinedRaw = strcat(tostring(RawAgentInfo), tostring(AgentActionTriggers))
+    | extend UrlMatches = extract_all(@"(https?://[^\s'""\\<>]{8,})", CombinedRaw)
+    | mv-expand ExtractedUrl = UrlMatches to typeof(string)
+    | extend ExtractedUrl = trim_end(@"[)\.,\\rn]+", ExtractedUrl)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | where ExtractedUrl !startswith "https://<"
+    | where ExtractedUrl !startswith "https://..."
+    | distinct
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        AgentStatus,
+        ConnectedAgentsSchemaNames = tostring(ConnectedAgentsSchemaNames),
+        ChildAgentsSchemaNames     = tostring(ChildAgentsSchemaNames),
+        SourceType = "HttpRequestAction",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 3: MCP servers
+// ---------------------------------------------------------------
+let McpServers =
+    AIAgentsInfo
+    | where isnotempty(AgentToolsDetails)
+    | extend ToolsJson = parse_json(AgentToolsDetails)
+    | mv-expand Tool = ToolsJson
+    | where tostring(Tool["$kind"]) == "TaskDialog"
+    | extend McpName = tostring(Tool.modelDisplayName)
+    | extend ConnRef = tostring(Tool.action.connectionReference)
+    | extend OpId = tostring(Tool.action.operationDetails.operationId)
+    | where isnotempty(OpId)
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        AgentStatus,
+        ConnectedAgentsSchemaNames = tostring(ConnectedAgentsSchemaNames),
+        ChildAgentsSchemaNames     = tostring(ChildAgentsSchemaNames),
+        SourceType = "McpServer",
+        ExtractedValue = strcat(McpName, " | connRef: ", ConnRef, " | opId: ", OpId);
+// ---------------------------------------------------------------
+// Union and compute topology risk indicators
+// ---------------------------------------------------------------
+union KnowledgeSources, HttpActionUrls, McpServers
+| extend
+    HasConnectedAgents = isnotempty(ConnectedAgentsSchemaNames)
+        and ConnectedAgentsSchemaNames != "[]",
+    HasChildAgents     = isnotempty(ChildAgentsSchemaNames)
+        and ChildAgentsSchemaNames != "[]"
+// Summarise per agent so each agent is one row with all its sources
+// and its full topology picture visible together
+| summarize
+    ExternalSources        = make_set(ExtractedValue),
+    ExternalSourceCount    = dcount(ExtractedValue),
+    SourceTypes            = make_set(SourceType),
+    HasConnectedAgents     = max(tobool(HasConnectedAgents)),
+    HasChildAgents         = max(tobool(HasChildAgents))
+    by AIAgentId, AIAgentName, TenantId, CreatorAccountUpn,
+       OwnerAccountUpns, AgentCreationTime, AgentStatus,
+       ConnectedAgents = ConnectedAgentsSchemaNames,
+       ChildAgents     = ChildAgentsSchemaNames
+// Topology risk score - higher = more worth investigating
+// External sources + child agents is the highest-risk combination
+| extend TopologyRiskScore = toint(
+    (ExternalSourceCount * 1)
+    + (iif(HasConnectedAgents, 2, 0))
+    + (iif(HasChildAgents, 3, 0))   // Child agents weighted higher - direct invocation chain
+  )
+| extend AgentIsActive = AgentStatus == "Published"
+| project
+    TopologyRiskScore,
+    AIAgentId,
+    AIAgentName,
+    TenantId,
+    AgentCreationTime,
+    AgentStatus,
+    AgentIsActive,
+    CreatorAccountUpn,
+    OwnerAccountUpns,
+    ExternalSourceCount,
+    ExternalSources,
+    SourceTypes,
+    HasConnectedAgents,
+    HasChildAgents,
+    ConnectedAgents,
+    ChildAgents
+| order by TopologyRiskScore desc, AgentCreationTime asc
+
+```
+
+If you are simply looking to base-line what external resources agents are accessing and look for those with an excessive count, or those reaching out to potentially malicious sources, this query will provide you with a basic count of the external resources accessed per agent, those with or without an owner assigned, and those with either an MCP or HTTPRequestAction to reach out and get that external data
+
+```kql
+
+// ============================================================
+// HUNT: AI Agent External Sources - Active Agents Only
+// ============================================================
+// Purpose: Scope the external source hunt to agents that are
+//          actively reachable - Published status only.
+//          Reduces noise during triage by excluding draft agents
+//          that cannot currently be interacted with.
+//          Use this as the starting point when triaging findings
+//          for immediate risk rather than full inventory coverage.
+//
+// Tables:  AIAgentsInfo
+// ============================================================
+
+let MicrosoftDomains = dynamic([
+    "microsoft.com", "azure.com", "windows.net", "dynamics.com",
+    "sharepoint.com", "office.com", "microsoftonline.com",
+    "powerplatform.com", "copilotstudio.microsoft.com",
+    "adaptivecards.io", "aka.ms", "m365.cloud.microsoft",
+    "azurefd.net"
+]);
+let TemplateDomains = dynamic([
+    "contoso.com", "contoso.sharepoint.com"
+]);
+// ---------------------------------------------------------------
+// Pre-filter to active agents only before any expensive parsing
+// ---------------------------------------------------------------
+let ActiveAgents =
+    AIAgentsInfo
+    | where AgentStatus == "Published";
+// ---------------------------------------------------------------
+// Arm 1: Knowledge source URLs
+// ---------------------------------------------------------------
+let KnowledgeSources =
+    ActiveAgents
+    | where isnotempty(KnowledgeDetails)
+    | extend KD = parse_json(KnowledgeDetails)
+    | mv-expand Site = KD.spec.knowledgeSources.publicSites
+    | extend ExtractedUrl = tostring(Site.url)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "KnowledgeSource",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 2: HttpRequest action URLs
+// ---------------------------------------------------------------
+let HttpActionUrls =
+    ActiveAgents
+    | where isnotempty(RawAgentInfo) or isnotempty(AgentActionTriggers)
+    | extend CombinedRaw = strcat(tostring(RawAgentInfo), tostring(AgentActionTriggers))
+    | extend UrlMatches = extract_all(@"(https?://[^\s'""\\<>]{8,})", CombinedRaw)
+    | mv-expand ExtractedUrl = UrlMatches to typeof(string)
+    | extend ExtractedUrl = trim_end(@"[)\.,\\rn]+", ExtractedUrl)
+    | where isnotempty(ExtractedUrl)
+    | where not(ExtractedUrl has_any (MicrosoftDomains))
+    | where not(ExtractedUrl has_any (TemplateDomains))
+    | where ExtractedUrl !startswith "https://<"
+    | where ExtractedUrl !startswith "https://..."
+    | distinct
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "HttpRequestAction",
+        ExtractedValue = ExtractedUrl;
+// ---------------------------------------------------------------
+// Arm 3: MCP servers
+// ---------------------------------------------------------------
+let McpServers =
+    ActiveAgents
+    | where isnotempty(AgentToolsDetails)
+    | extend ToolsJson = parse_json(AgentToolsDetails)
+    | mv-expand Tool = ToolsJson
+    | where tostring(Tool["$kind"]) == "TaskDialog"
+    | extend McpName = tostring(Tool.modelDisplayName)
+    | extend ConnRef = tostring(Tool.action.connectionReference)
+    | extend OpId = tostring(Tool.action.operationDetails.operationId)
+    | where isnotempty(OpId)
+    | project
+        AIAgentId,
+        AIAgentName,
+        TenantId,
+        CreatorAccountUpn,
+        OwnerAccountUpns,
+        AgentCreationTime,
+        LastPublishedTime,
+        SourceType = "McpServer",
+        ExtractedValue = strcat(McpName, " | connRef: ", ConnRef, " | opId: ", OpId);
+// ---------------------------------------------------------------
+// Union and collapse to one row per AIAgentId
+// Summarising by AIAgentId rather than AIAgentName intentionally -
+// a mimic agent sharing a legitimate agent's name will have a
+// different AIAgentId and appear as a separate row
+// ---------------------------------------------------------------
+union KnowledgeSources, HttpActionUrls, McpServers
+| summarize
+    AIAgentName         = take_any(AIAgentName),
+    TenantId            = take_any(TenantId),
+    CreatorAccountUpn   = take_any(CreatorAccountUpn),
+    OwnerAccountUpns    = take_any(OwnerAccountUpns),
+    AgentCreationTime   = take_any(AgentCreationTime),
+    LastPublishedTime   = take_any(LastPublishedTime),
+    SourceTypes         = make_set(SourceType),
+    ExternalSources     = make_set(ExtractedValue),
+    ExternalSourceCount = dcount(ExtractedValue)
+    by AIAgentId
+| extend
+    NoOwner          = isempty(OwnerAccountUpns) or OwnerAccountUpns == "[]",
+    DaysSincePublish = datetime_diff('day', now(), todatetime(LastPublishedTime))
+| project
+    AIAgentId,
+    AIAgentName,
+    TenantId,
+    AgentCreationTime,
+    LastPublishedTime,
+    DaysSincePublish,
+    CreatorAccountUpn,
+    OwnerAccountUpns,
+    NoOwner,
+    ExternalSourceCount,
+    SourceTypes,
+    ExternalSources
+| order by DaysSincePublish desc, AIAgentName asc
+```
+
+Agents owned by departed users are an immediate deprovisioning gap. Cross-referencing against Entra ID sign-in activity surfaces these quickly:
 
 ```kql
 AIAgentsInfo
 | where AgentStatus != "Deleted"
 | join kind=leftouter (
-    AADSignInLogs
-    | where TimeGenerated > ago(30d)
-    | summarize LastSignIn = max(TimeGenerated) by UserPrincipalName
-) on $left.AgentOwner == $right.UserPrincipalName
+    EntraIdSignInEvents
+    | where Timestamp >= ago(30d)
+    | summarize LastSignIn = max(Timestamp) by AccountUpn
+) on $left.OwnerAccountUpns == $right.AccountUpn
 | where isnull(LastSignIn) or LastSignIn < ago(90d)
-| project AIAgentId, AIAgentName, AgentOwner, LastSignIn, AgentCreationTime
+| project AIAgentId, AIAgentName, OwnerAccountUpns, LastSignIn, AgentCreationTime
 ```
 
 Beyond posture, the Agent 365 connector streams agent audit logs into
