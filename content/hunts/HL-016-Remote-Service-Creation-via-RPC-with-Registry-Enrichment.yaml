@@ -1,0 +1,287 @@
+id: HL-016
+title: Remote Service Creation via RPC with Registry Enrichment
+summary: >
+  Detects inbound RPC calls matching MS-SCMR service creation opnums against the SCM
+  interface (367abb81-9844-35f1-ad32-98f038001003), correlated with registry writes under
+  HKLM\SYSTEM\ControlSet*\Services to recover the created service name, binary path, and
+  caller identity. Alerts at Medium severity for persistent service creation and High for
+  transient services (DeleteFlag=1), which are characteristic of PsExec-style execution
+  and post-exploitation tooling.
+hypothesis: |
+  Remote service creation is one of the more reliable lateral movement indicators available
+  in endpoint telemetry. When an attacker has credentials and network access to a target,
+  the Windows Service Control Manager (SCM) gives them a straightforward way to execute
+  arbitrary binaries - register a service remotely via RPC, start it, collect the output,
+  and optionally remove it. Tools like PsExec, Impacket's svcctl, and a range of C2
+  frameworks all rely on this mechanism.
+
+  The MS-SCMR interface (367abb81-9844-35f1-ad32-98f038001003) exposes a set of RPC
+  operations for managing services remotely. The service creation opnums are:
+    - 12: RCreateServiceW
+    - 24: RCreateServiceA
+    - 44: RCreateServiceWOW64A
+    - 45: RCreateServiceWOW64W
+    - 60: RCreateWowService
+
+  Microsoft Defender for Endpoint surfaces inbound RPC calls via the InboundRemoteRpcCall
+  action type in DeviceEvents, which provides the interface UUID and opnum. On its own,
+  this tells you a service creation call arrived at the target - but it does not tell you
+  what was created. The registry write that SCM performs under HKLM\SYSTEM\ControlSet*\Services
+  carries the full service registration: name, binary path, account, and start type. Correlating
+  the two tables within a tight time window recovers the complete picture.
+
+  A key detail worth flagging: MDE logs the real hive path rather than the CurrentControlSet
+  symlink. Filtering on SYSTEM\CurrentControlSet\Services will return nothing. The correct
+  pattern is SYSTEM\ControlSet\d+\Services, which matches ControlSet001, ControlSet002,
+  and any others.
+
+  Transient services - those registered with DeleteFlag=1 - are designed to be removed by
+  SCM when the service stops. This is the specific behaviour PsExec uses to clean up after
+  itself, and it is a strong indicator that the service was created for one-shot execution
+  rather than persistence. The detection surfaces this as a boolean flag and bumps severity
+  accordingly.
+
+  Legitimate use of remote service creation is narrow: backup agents (Veeam being a common
+  example), domain administrative tooling, and some remote management platforms. These should
+  be identifiable by known source hosts, service accounts, and recognisable binary paths.
+author: RustedRoberts
+updated: "2026-06-15"
+version: "1.0"
+
+tactics:
+  - Lateral Movement
+  - Execution
+
+techniques:
+  - id: T1021.002
+    name: "Remote Services: SMB/Windows Admin Shares"
+  - id: T1569.002
+    name: "System Services: Service Execution"
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Promoted
+signal: High
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceRegistryEvents
+    required: true
+
+whatYoullSee: |
+  The detection surfaces one row per RPC service creation event, enriched with the registry
+  values written by SCM in the seconds following the call.
+
+  The Description field stitches the key values together into a human-readable summary:
+  who connected, from where, what they registered, and whether the service is transient.
+  This is the fastest triage field.
+
+  Key fields to assess:
+
+  - **SourceIP / CallerAccountName / CallerAccountDomain**: who initiated the service
+    creation call and from which host. A named admin account connecting from an unexpected
+    IP is the primary lateral movement indicator.
+  - **ServiceName / ImagePath**: what was registered. Recognisable backup agent paths
+    (e.g. VeeamGuestHelper.exe) are expected; system utility paths with command-line
+    arguments (e.g. cmd.exe /c ..., PSEXESVC.exe) are suspicious.
+  - **IsTransientService (true/false)**: DeleteFlag=1 means SCM removes the registry key
+    when the service stops. This is PsExec's cleanup behaviour. Any transient service
+    should be treated as high priority until confirmed otherwise.
+  - **ObjectName**: the account the service was registered to run as. LocalSystem is the
+    default; a named domain account suggests the attacker is specifying execution context.
+  - **OpNumDescription**: the MS-SCMR function called. RCreateWowService (opnum 60) is
+    the WOW64 variant used by 32-bit tooling running on 64-bit targets.
+  - **RpcAuthLevel / RpcAuthService**: authentication context for the RPC call. Level 6
+    is RPC_C_AUTHN_LEVEL_PKT_PRIVACY (Kerberos-encrypted). Unauthenticated or NTLM calls
+    are worth noting separately.
+
+  A typical PsExec hit presents as: transient service (IsTransientService: true), binary
+  path of %SystemRoot%\PSEXESVC.exe, ObjectName of LocalSystem, and a named admin account
+  from an internal source IP. Confirm whether the source IP is an expected administrative
+  workstation for that account and whether PsExec is authorised in the environment.
+
+investigationSteps:
+  - "Confirm the caller identity: is CallerAccountName a recognised admin account, and
+    is SourceIP a known workstation or server for that account? A mismatch between account
+    and source host is a strong indicator of credential theft or lateral movement."
+  - "Assess the binary path in ImagePath: does it match a known, signed executable from
+    a reputable vendor? Paths referencing temp directories, user profiles, or system
+    utilities with arguments (e.g. cmd.exe /c, powershell.exe -enc) are high-priority
+    findings."
+  - "If IsTransientService is true, pivot immediately to DeviceProcessEvents on the target
+    device around the same timestamp to identify what PSEXESVC.exe or the equivalent
+    binary spawned. The created service's process tree is the execution artefact."
+  - "Check ObjectName: if the service was registered to run as a domain account rather
+    than LocalSystem, identify that account, assess its privilege level, and determine
+    whether it has been used from unexpected hosts recently."
+  - "Review the RPC authentication context: RpcAuthService 9 is Kerberos, which requires
+    valid domain credentials. If NTLM is observed, investigate whether the account's
+    credentials have been harvested via pass-the-hash or relay."
+  - "For Veeam or other known backup agent hits, confirm that the source IP matches the
+    backup server for that environment and that the service creation occurred within an
+    expected backup window. Backup agents creating services outside their scheduled window
+    are worth querying."
+  - "If the activity appears unauthorised, isolate the target device, block the source IP
+    at the network boundary, and preserve the DeviceEvents and DeviceProcessEvents telemetry
+    for the incident timeline before any remediation actions are taken."
+
+falsePositives:
+  - Veeam Backup and Replication registering VeeamGuestHelper.exe on target machines during
+    backup jobs. This is expected behaviour - validate the source IP matches the backup
+    server and the creation time falls within a scheduled backup window.
+  - Other backup or remote management agents that register transient services as part of
+    their normal operation. These should be identifiable by a recognisable ImagePath from
+    a signed vendor binary.
+  - Domain administrators using PsExec or Sysinternals tooling for legitimate remote
+    administration. Authorised use should be documented and the source hosts should be
+    known administrative workstations.
+  - Software deployment tooling (SCCM, Intune remediation scripts) that creates and removes
+    services as part of software installation or configuration management workflows.
+
+curatorNotes: |
+  Marked Experimental. The false-positive profile depends heavily on what backup and
+  remote management tooling is running in the environment. Environments without Veeam or
+  similar agents should see a very low hit rate, making any result high priority. Environments
+  with active backup infrastructure will need the Veeam hits tuned out before promotion.
+
+  Tuning considerations:
+  - Build a watchlist of known-legitimate source IPs (backup servers, management hosts)
+    and known-legitimate service names. Use this to suppress expected hits rather than
+    modifying the detection logic directly.
+  - The 30-second time window between the RPC event and the registry write is a heuristic.
+    If registry writes are being missed for known-legitimate services, widen to 60 seconds
+    and monitor for increased fan-out noise.
+  - The DeviceName normalisation (tolower) in both legs of the join is important to retain
+    if the query is modified. MDE is not consistent about case across tables, and a case
+    mismatch will silently drop valid matches.
+  - RPC telemetry requires MDE Sense running at an appropriate coverage level. Devices
+    without InboundRemoteRpcCall events in DeviceEvents should be flagged as a coverage
+    gap rather than treated as evidence of no activity.
+
+  Promotion criteria: sustained true-positive rate above 80% across two or more customer
+  environments, with a documented exclusion methodology covering backup tooling and
+  authorised remote administration use cases.
+
+references:
+  - label: "MITRE ATT&CK: Remote Services - SMB/Windows Admin Shares (T1021.002)"
+    url: https://attack.mitre.org/techniques/T1021/002/
+  - label: "MITRE ATT&CK: System Services - Service Execution (T1569.002)"
+    url: https://attack.mitre.org/techniques/T1569/002/
+  - label: "Microsoft: MS-SCMR - Service Control Manager Remote Protocol"
+    url: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-scmr/
+  - label: "Sysinternals: PsExec"
+    url: https://learn.microsoft.com/en-us/sysinternals/downloads/psexec
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      let remoteServicesInterface = '367abb81-9844-35f1-ad32-98f038001003';
+      let serviceCreationOpnums = dynamic([12, 24, 44, 45, 60]); // RCreateServiceW, RCreateServiceA, RCreateServiceWOW64A, RCreateServiceWOW64W, RCreateWowService
+      let timeWindow = 30s;
+      let rpcEvents =
+          DeviceEvents
+          | where ActionType == 'InboundRemoteRpcCall'
+          | extend AdditionalFields = parse_json(AdditionalFields)
+          | extend
+              RpcInterface = tostring(AdditionalFields.RpcInterfaceUuid),
+              OpNum = toint(AdditionalFields.RpcOpNum)
+          | where RpcInterface == remoteServicesInterface and OpNum in (serviceCreationOpnums)
+          | project
+              RpcTime = Timestamp,
+              TenantId,
+              DeviceName = tolower(DeviceName),
+              DeviceId,
+              OpNum,
+              // Network context - who connected and from where
+              SourceIP = RemoteIP,
+              SourcePort = RemotePort,
+              DestinationIP = LocalIP,
+              // Caller identity recovered from the raw event columns (not AdditionalFields)
+              CallerAccountName = AccountName,
+              CallerAccountDomain = AccountDomain,
+              CallerAccountSid = AccountSid,
+              // RPC authentication context from AdditionalFields
+              RpcAuthLevel = toint(AdditionalFields.RpcAuthenticationLevel),
+              RpcAuthService = toint(AdditionalFields.RpcAuthenticationService),
+              RpcProtocolSequence = toint(AdditionalFields.RpcProtocolSequence);
+      let serviceKeys =
+          DeviceRegistryEvents
+          // Use ControlSet\d+ regex - MDE resolves and logs the actual hive path,
+          // not the CurrentControlSet symlink, so filtering on CurrentControlSet returns nothing
+          | where RegistryKey matches regex @'SYSTEM\\ControlSet\d+\\Services'
+          | where ActionType in ('RegistryKeyCreated', 'RegistryValueSet')
+          | extend ServiceName = tolower(extract(@'Services\\([^\\]+)', 1, RegistryKey))
+          | project
+              RegTime = Timestamp,
+              DeviceName = tolower(DeviceName),
+              ServiceName,
+              RegistryKey,
+              RegistryValueName,
+              RegistryValueData;
+      rpcEvents
+      | join kind=inner (serviceKeys) on DeviceName
+      | where RegTime between ((RpcTime - timeWindow) .. (RpcTime + timeWindow))
+      // Pivot the registry value rows so each service appears as a single enriched row
+      // with the most valuable fields surfaced directly rather than one row per registry value
+      | summarize
+          ServiceName = take_any(ServiceName),
+          ImagePath = take_anyif(RegistryValueData, RegistryValueName == 'ImagePath'),
+          DisplayName = take_anyif(RegistryValueData, RegistryValueName == 'DisplayName'),
+          ObjectName = take_anyif(RegistryValueData, RegistryValueName == 'ObjectName'),
+          StartType = take_anyif(RegistryValueData, RegistryValueName == 'Start'),
+          DeleteFlag = take_anyif(RegistryValueData, RegistryValueName == 'DeleteFlag')
+          by RpcTime, TenantId, DeviceName, DeviceId, OpNum, SourceIP, SourcePort,
+             DestinationIP, CallerAccountName, CallerAccountDomain, CallerAccountSid,
+             RpcAuthLevel, RpcAuthService
+      // Flag transient services (DeleteFlag=1 means SCM removes the key on service stop - classic PsExec pattern)
+      | extend IsTransientService = (DeleteFlag == '1')
+      | extend OpNumDescription = case(
+          OpNum == 12, 'RCreateServiceW',
+          OpNum == 24, 'RCreateServiceA',
+          OpNum == 44, 'RCreateServiceWOW64A',
+          OpNum == 45, 'RCreateServiceWOW64W',
+          OpNum == 60, 'RCreateWowService',
+          'Unknown')
+      | extend Description = strcat(
+          'Remote service creation via ', OpNumDescription, ' observed on ', DeviceName, '. ',
+          'Caller ', CallerAccountDomain, '\\', CallerAccountName, ' from ', SourceIP, ' ',
+          case(
+              IsTransientService, 'registered transient service ',
+              'registered service '
+          ),
+          '"', ServiceName, '"',
+          iff(isnotempty(ImagePath), strcat(' (', ImagePath, ')'), ''),
+          iff(isnotempty(ObjectName) and ObjectName != 'LocalSystem', strcat(' running as ', ObjectName), ''),
+          '.'
+      )
+      | project
+          RpcTime,
+          TenantId,
+          DeviceName,
+          Description,
+          CallerAccountDomain,
+          CallerAccountName,
+          CallerAccountSid,
+          SourceIP,
+          SourcePort,
+          DestinationIP,
+          OpNum,
+          OpNumDescription,
+          ServiceName,
+          ImagePath,
+          DisplayName,
+          ObjectName,
+          StartType,
+          IsTransientService,
+          RpcAuthLevel,
+          RpcAuthService
+      | sort by RpcTime desc
+
+relatedHunts:
+  - HL-005: SMB Lateral Movement via High-Volume Port 445 Connections
