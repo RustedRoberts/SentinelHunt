@@ -1,0 +1,53 @@
+{
+  "manifest_version": "0.3",
+  "name": "liongard-mcp",
+  "display_name": "Liongard",
+  "version": "0.1.1",
+  "description": "Every Liongard endpoint, plus an offline copy of your whole MSP estate you can join, search, and drift-check from one command.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/liongard-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/liongard-mcp",
+      "args": [],
+      "env": {
+        "LIONGARD_API_KEY": "${user_config.liongard_api_key}",
+        "LIONGARD_INSTANCE": "${user_config.liongard_instance}"
+      }
+    }
+  },
+  "user_config": {
+    "liongard_api_key": {
+      "type": "string",
+      "title": "LIONGARD_API_KEY",
+      "description": "Sets LIONGARD_API_KEY for the Liongard MCP server.",
+      "sensitive": true,
+      "required": true
+    },
+    "liongard_instance": {
+      "type": "string",
+      "title": "LIONGARD_INSTANCE",
+      "description": "Sets LIONGARD_INSTANCE for the endpoint template variable {instance}.",
+      "default": "example"
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T04:10:04.595258Z",
+    "spec_checksum": "sha256:369e071df713d1be383ab5b568b5bdc16b420fd8a82c395c329d97c6ef91fdfc",
+    "spec_format": "openapi3"
+  }
+}

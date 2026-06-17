@@ -1,0 +1,52 @@
+{
+  "manifest_version": "0.3",
+  "name": "xero-mcp",
+  "display_name": "Xero",
+  "version": "0.1.1",
+  "description": "Every Xero Accounting read plus a local SQLite ledger \u2014 aging, reconciliation, and GL tie-out that no other Xero tool computes offline.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/xero-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/xero-mcp",
+      "args": [],
+      "env": {
+        "XERO_ACCESS_TOKEN": "${user_config.xero_access_token}",
+        "XERO_OAUTH2": "${user_config.xero_oauth2}"
+      }
+    }
+  },
+  "user_config": {
+    "xero_access_token": {
+      "type": "string",
+      "title": "XERO_ACCESS_TOKEN",
+      "description": "Optional. Sets XERO_ACCESS_TOKEN for the Xero MCP server.",
+      "sensitive": true
+    },
+    "xero_oauth2": {
+      "type": "string",
+      "title": "XERO_OAUTH2",
+      "description": "Optional. Sets XERO_OAUTH2 for the Xero MCP server.",
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T04:03:32.259357Z",
+    "spec_checksum": "sha256:e30fb22f7eae1717f708161ce3b9401968459bcb65004ac7654b9c073e6babb6",
+    "spec_format": "openapi3"
+  }
+}

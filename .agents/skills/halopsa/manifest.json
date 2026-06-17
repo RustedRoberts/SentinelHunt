@@ -1,0 +1,88 @@
+{
+  "manifest_version": "0.3",
+  "name": "halopsa-mcp",
+  "display_name": "HaloPSA",
+  "version": "0.2.1",
+  "description": "Every HaloPSA, HaloITSM and HaloCRM feature, plus a local SQLite store and cross-entity views the API can't return.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/halopsa-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/halopsa-mcp",
+      "args": [],
+      "env": {
+        "HALOPSA_CLIENT_ID": "${user_config.halopsa_client_id}",
+        "HALOPSA_CLIENT_SECRET": "${user_config.halopsa_client_secret}",
+        "HALOPSA_DOMAIN": "${user_config.halopsa_domain}",
+        "HALOPSA_OAUTH_SCOPE": "${user_config.halopsa_oauth_scope}",
+        "HALOPSA_SCOPE": "${user_config.halopsa_scope}",
+        "HALOPSA_TENANT": "${user_config.halopsa_tenant}",
+        "HALOPSA_TOKEN": "${user_config.halopsa_token}"
+      }
+    }
+  },
+  "user_config": {
+    "halopsa_client_id": {
+      "type": "string",
+      "title": "HALOPSA_CLIENT_ID",
+      "description": "OAuth2 client ID from your Halo API application",
+      "required": true
+    },
+    "halopsa_client_secret": {
+      "type": "string",
+      "title": "HALOPSA_CLIENT_SECRET",
+      "description": "OAuth2 client secret from your Halo API application",
+      "sensitive": true,
+      "required": true
+    },
+    "halopsa_domain": {
+      "type": "string",
+      "title": "HALOPSA_DOMAIN",
+      "description": "Sets HALOPSA_DOMAIN for the endpoint template variable {domain}.",
+      "default": "halopsa.com"
+    },
+    "halopsa_oauth_scope": {
+      "type": "string",
+      "title": "HALOPSA_OAUTH_SCOPE",
+      "description": "Sets HALOPSA_OAUTH_SCOPE for the HaloPSA MCP server. Required by the generated client for credential refresh or hand-written auth flow.",
+      "sensitive": true,
+      "required": true
+    },
+    "halopsa_scope": {
+      "type": "string",
+      "title": "HALOPSA_SCOPE",
+      "description": "Optional. OAuth2 scope (defaults to \"all\"); set to a narrower scope when your API application requires it"
+    },
+    "halopsa_tenant": {
+      "type": "string",
+      "title": "HALOPSA_TENANT",
+      "description": "Sets HALOPSA_TENANT for the endpoint template variable {tenant}.",
+      "default": "demo"
+    },
+    "halopsa_token": {
+      "type": "string",
+      "title": "HALOPSA_TOKEN",
+      "description": "Optional. Pre-issued Bearer access token. Overrides the client_credentials flow when set.",
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T05:49:07.18155Z",
+    "spec_checksum": "sha256:370351194ebedc0319937b2956930c3c3254bc436648b8b6bead4903aa75b7df",
+    "spec_format": "openapi3"
+  }
+}

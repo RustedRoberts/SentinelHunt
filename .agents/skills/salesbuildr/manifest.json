@@ -1,0 +1,53 @@
+{
+  "manifest_version": "0.3",
+  "name": "salesbuildr-mcp",
+  "display_name": "Salesbuildr",
+  "version": "0.1.1",
+  "description": "Every Salesbuildr resource as a scriptable command, plus offline margin and pipeline analytics.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/salesbuildr-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/salesbuildr-mcp",
+      "args": [],
+      "env": {
+        "SALESBUILDR_API_KEY": "${user_config.salesbuildr_api_key}",
+        "SALESBUILDR_TENANT": "${user_config.salesbuildr_tenant}"
+      }
+    }
+  },
+  "user_config": {
+    "salesbuildr_api_key": {
+      "type": "string",
+      "title": "SALESBUILDR_API_KEY",
+      "description": "Sets SALESBUILDR_API_KEY for the Salesbuildr MCP server.",
+      "sensitive": true,
+      "required": true
+    },
+    "salesbuildr_tenant": {
+      "type": "string",
+      "title": "SALESBUILDR_TENANT",
+      "description": "Sets SALESBUILDR_TENANT for the endpoint template variable {tenant}.",
+      "default": "your-tenant"
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T04:14:54.021651Z",
+    "spec_checksum": "sha256:0cc8aff4b0b9bb96605d1d52c3aa555373d2757aa5a39a90fc6b7f5f741496c5",
+    "spec_format": "openapi3"
+  }
+}

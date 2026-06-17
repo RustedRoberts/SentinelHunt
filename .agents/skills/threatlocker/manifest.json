@@ -1,0 +1,46 @@
+{
+  "manifest_version": "0.3",
+  "name": "threatlocker-mcp",
+  "display_name": "ThreatLocker",
+  "version": "0.1.1",
+  "description": "Every ThreatLocker Portal API feature, plus the write operations the read-only tools lack and a cross-tenant offline store no other ThreatLocker tool has.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/threatlocker-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/threatlocker-mcp",
+      "args": [],
+      "env": {
+        "THREATLOCKER_API_KEY": "${user_config.threatlocker_api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "threatlocker_api_key": {
+      "type": "string",
+      "title": "THREATLOCKER_API_KEY",
+      "description": "Sets THREATLOCKER_API_KEY for the ThreatLocker MCP server.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T04:10:15.113445Z",
+    "spec_checksum": null,
+    "spec_format": null
+  }
+}

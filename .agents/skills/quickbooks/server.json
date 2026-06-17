@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Servosity/quickbooks-mcp",
+  "title": "QuickBooks Online MCP",
+  "description": "Every QuickBooks Online Accounting entity, plus an offline SQLite mirror and AR/AP aging.",
+  "version": "0.1.3",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/servosity/msp-skills/main/docs/assets/social/quickbooks/quickbooks-512x512.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/servosity/msp-skills",
+    "source": "github",
+    "subfolder": "skills/quickbooks"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/servosity/msp-skills/releases/download/quickbooks-v0.1.3/quickbooks-mcp.mcpb",
+      "version": "0.1.3",
+      "fileSha256": "PLACEHOLDER_SHA256_FILLED_BY_CI",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "QUICKBOOKS_ACCESS_TOKEN",
+          "description": "OAuth 2.0 bearer access token (scope com.intuit.quickbooks.accounting). Mint it from the Intuit OAuth 2.0 Playground or `quickbooks-cli auth refresh`.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

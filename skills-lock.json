@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "skills": {
+    "abnormal": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/abnormal/SKILL.md",
+      "computedHash": "083e068d9bd0dc54ffd8c5df2b10b8e3bb5e3a8dc8ce00b443ae8edbd55de2bf"
+    },
+    "acronis": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/acronis/SKILL.md",
+      "computedHash": "f0c5019c7b5d0c17729576f9c9e5057485f0ff59a4ec71d0465056a0d6e91c54"
+    },
+    "action1": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/action1/SKILL.md",
+      "computedHash": "be615cd6cb618081e664c7e26453c8c2a58705cf41b0f2c75fc6d939762a48d0"
+    },
+    "afi": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/afi/SKILL.md",
+      "computedHash": "de24f18e48a3af7b9eb9991e720765e924a2a333d1800bb4ca8509ccb072a479"
+    },
+    "appdirect": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/appdirect/SKILL.md",
+      "computedHash": "826ebdd46812dc5e2a2ad4ffd3ec02808bdea239cab48eedbd9b38aa994b7787"
+    },
+    "atera": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/atera/SKILL.md",
+      "computedHash": "6e13299ca7a52c09a7de63b1d75d7821a48118303ac1e51ae2ae1b742f4b7a9d"
+    },
+    "autotask": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/autotask/SKILL.md",
+      "computedHash": "a8854e2a29203b770bd2e5dd52aee9734e2c34c617975d40d6fcbc978130343d"
+    },
+    "axcient": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/axcient/SKILL.md",
+      "computedHash": "4f4f29fd185c481568facd432903aa071e1d9e0cd1d677ac9d7583fa0951394d"
+    },
+    "betterstack": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/betterstack/SKILL.md",
+      "computedHash": "6b4a0d147355d9a1da6864b6b1725d3f549e6ddae359aa73eaa9f1f45fd14000"
+    },
+    "blumira": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/blumira/SKILL.md",
+      "computedHash": "d019c27c60660d16b32fbbe00cebc2ecb775b419040c0eb6e8bfca71644d59df"
+    },
+    "cipp": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cipp/SKILL.md",
+      "computedHash": "afba4c80170d996a0b3f46def9de86c18f26ecedee54fef9849707da88085b11"
+    },
+    "connectwise-automate": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/connectwise-automate/SKILL.md",
+      "computedHash": "879fdf5012d22d722734824a5e00a489c9c00d4bb6990b78b821f9aae2639df3"
+    },
+    "connectwise-control": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/connectwise-control/SKILL.md",
+      "computedHash": "df5b8e92075861613c08a1c7198b63f7e9d7cb51f5459609134c6b65fd189574"
+    },
+    "connectwise-manage": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/connectwise-manage/SKILL.md",
+      "computedHash": "f291c1fe7fe0179123de12404564d6564a0d301272ce114b9f651961fb4c4ba2"
+    },
+    "cove": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cove/SKILL.md",
+      "computedHash": "9b2ff918bf84b4b51e418bc65516e48af104ab06220b0021c8d1b87134b638e4"
+    },
+    "crowdstrike": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/crowdstrike/SKILL.md",
+      "computedHash": "7c52647f8aff23e4fa4e684be6fa60a68679ed4943d7052fe44983e76710375c"
+    },
+    "datto-bcdr": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/datto-bcdr/SKILL.md",
+      "computedHash": "5a45c92fbedeffc2a3e069b8e530dd5c0fc1238a761191f5b9d46f02b1e752d6"
+    },
+    "datto-rmm": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/datto-rmm/SKILL.md",
+      "computedHash": "4b4347c8211e9d2313951b05cfa28d946382eaebc113c2ce54090c54f3d2f286"
+    },
+    "domotz": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/domotz/SKILL.md",
+      "computedHash": "0665f9c57536cdab8ef02c1dd2e2aa3c7cd2e2a1b225dd15d5755a7f6ad965b3"
+    },
+    "gradient": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gradient/SKILL.md",
+      "computedHash": "bf6e69e21eed0c238b8620f49aeba770c8da5137d00bde42afe837abc41ab93f"
+    },
+    "halopsa": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/halopsa/SKILL.md",
+      "computedHash": "b79f5e80d83f9e323f0cc7917a660f8135b25d05648d1f8f42b0904e14c9454e"
+    },
+    "hubspot": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/hubspot/SKILL.md",
+      "computedHash": "d0277e7277539af44789f968dc07d31eb2ab501d958b621119f24793cfe1ea4c"
+    },
+    "hudu": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/hudu/SKILL.md",
+      "computedHash": "74c360681a8d812a7737b3526ff4a9085547b0fe11ef32115bf3103fcd01f094"
+    },
+    "huntress": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/huntress/SKILL.md",
+      "computedHash": "6fd1350480dfc68ac2cbb72f2b6480edb9049482fdc25bff852cd1672d0ad5d0"
+    },
+    "itglue": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/itglue/SKILL.md",
+      "computedHash": "61ea9abb82bbddecf5236b5eac697cb5660306ce7d7133bbaf4c6884e3fcd98a"
+    },
+    "kaseya-bms": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/kaseya-bms/SKILL.md",
+      "computedHash": "97c7c09e2ee47fbb07d035219853a1174e5c4f22bd7231d8075885fb159f192a"
+    },
+    "knowbe4": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/knowbe4/SKILL.md",
+      "computedHash": "b6a89abcc6da43ed00276b246b04e6839deaf4ab48accdebe7df30a19c1fba95"
+    },
+    "levelio": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/levelio/SKILL.md",
+      "computedHash": "53a49f28565f8eadb2ea6e04a5496699818e8797b04ba4994b81478a2758cb95"
+    },
+    "liongard": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/liongard/SKILL.md",
+      "computedHash": "46b7e0d50a934156f102adb4d4f1dda946bff12e52b380ff929d2c49937fe4ae"
+    },
+    "microsoft-graph": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/microsoft-graph/SKILL.md",
+      "computedHash": "03e2f3300c5b1f290da259b70aea3486d6ad3598a40b1be2fd3cd2e7792d1ddc"
+    },
+    "msp-skills-concierge": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/_meta/SKILL.md",
+      "computedHash": "7f8699dba09c877414bb14f41eefb84d41d54e46b0ac3d711b0791c6a883fe7c"
+    },
+    "mspbots": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mspbots/SKILL.md",
+      "computedHash": "45124316064050a5a3f0c5c2017853f6059371cac44b317ac60e6a688bdedbc0"
+    },
+    "n-central": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/n-central/SKILL.md",
+      "computedHash": "6d101f68759720c5ab388daad7cdb967656b2891a08c498141cbcf0b8fa0c209"
+    },
+    "nerdio": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nerdio/SKILL.md",
+      "computedHash": "e2a098d6e40df2ca0d4132701f3110fb9da9f594461a82223bc7def9e5982cc4"
+    },
+    "ninjaone": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ninjaone/SKILL.md",
+      "computedHash": "59b96c1d4d3ec29648f6bb04e2dfc19271030839ee0e48df1c2330c58c568180"
+    },
+    "pagerduty": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pagerduty/SKILL.md",
+      "computedHash": "8ea67a9f75c59fe41239b0eab658757c341729c4cf87f377c6affbfb66f1961a"
+    },
+    "pandadoc": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pandadoc/SKILL.md",
+      "computedHash": "2598454aa866426ab034e76fdc7ffa0624d144578308914ddea287ce89c82370"
+    },
+    "pax8": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pax8/SKILL.md",
+      "computedHash": "83e67fd7109ded64bbd4f42b184b5a706235edb1114aa714f9abd97dd2561230"
+    },
+    "pipedrive": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pipedrive/SKILL.md",
+      "computedHash": "2a1644f8b8da2db6d30c20dd6c6b0a9765d3eb9472f9ff70251f9fc33ce1e6bc"
+    },
+    "proofpoint": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/proofpoint/SKILL.md",
+      "computedHash": "675a0063268dd4a86652458056edf45f84f5342741cb1915f57244637a88293c"
+    },
+    "quickbooks": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/quickbooks/SKILL.md",
+      "computedHash": "002ce21a6873cd192444809b4c5c569d6bb08ce6f7d28db470cb5150d21af221"
+    },
+    "rewst": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rewst/SKILL.md",
+      "computedHash": "6d7008cccf373f0ec6cf7a3b95d75f2511d7f766400dbcfe6cf82c6a1dbebda8"
+    },
+    "rocketcyber": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rocketcyber/SKILL.md",
+      "computedHash": "f2036a2035e4809e839e2f3402185720e3f80e0301b164f2151159ebb6e7596f"
+    },
+    "rootly": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rootly/SKILL.md",
+      "computedHash": "f7a442f67f635c6244a1de0c169bd45210fe77e2463590cad994843f9a223d52"
+    },
+    "runzero": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/runzero/SKILL.md",
+      "computedHash": "fdb18249d5ab6600494ab18fd958f5e8605e750ff9cdfb4482718f750d3d3c32"
+    },
+    "salesbuildr": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/salesbuildr/SKILL.md",
+      "computedHash": "b927a1d60d129e39060ba251982e6020899dbb06558781ad5552c8757e42dad0"
+    },
+    "sentinelone": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sentinelone/SKILL.md",
+      "computedHash": "9f81247ca0caaedbc8c243d9bccff6c82b086dcf87f884ed0f095e208f33555f"
+    },
+    "servosity": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/servosity/SKILL.md",
+      "computedHash": "3c59dbf0670f6d158f7a71a508a1f9d07e98c72ec59483a8f076b3fc1c844cfb"
+    },
+    "sherweb": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/sherweb/SKILL.md",
+      "computedHash": "1fca31b007bf858f666bf18d68ebd788e8baf8b86796d0b593f57b481dfbf5b4"
+    },
+    "skykick": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/skykick/SKILL.md",
+      "computedHash": "8b5c75ff1f2f02d15fffd4d2f7f875d83844b032aeb5d1761194409dd65a3262"
+    },
+    "superops": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/superops/SKILL.md",
+      "computedHash": "f2f92bcee5e90be3d43b3a5815b17aba662f674da6e586e0bf9c68c18d33e274"
+    },
+    "syncro": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/syncro/SKILL.md",
+      "computedHash": "223b2b73440b1105bea204012705fa6332412c7298032d5922f46527f80396d4"
+    },
+    "tactical-rmm": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/tactical-rmm/SKILL.md",
+      "computedHash": "109886bb9da1500962dc0081f97eddd1385cc981974381684f11aeedfed15fc1"
+    },
+    "threatlocker": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/threatlocker/SKILL.md",
+      "computedHash": "c6c0f4af0ef6bf9f4e8fc60cd1dcde972431485182295d697917652022b23f81"
+    },
+    "veeam": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/veeam/SKILL.md",
+      "computedHash": "b815ea3f68eda2b080b3024188e234fb5cb6029c2c8200d6db46fc84de2f5b4c"
+    },
+    "xero": {
+      "source": "Servosity/msp-skills",
+      "sourceType": "github",
+      "skillPath": "skills/xero/SKILL.md",
+      "computedHash": "ac7f2ebdeeb6238e708c47687a28bd32905dd322fa9f4a53e71d41a69a639489"
+    }
+  }
+}

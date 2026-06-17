@@ -1,0 +1,46 @@
+{
+  "manifest_version": "0.3",
+  "name": "axcient-mcp",
+  "display_name": "Axcient x360Recover",
+  "version": "0.2.5",
+  "description": "Every x360Recover endpoint, plus the fleet-wide backup-health answers the API alone can't give \u2014 offline, joined, and agent-ready.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/axcient-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/axcient-mcp",
+      "args": [],
+      "env": {
+        "AXCIENT_API_KEY": "${user_config.axcient_api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "axcient_api_key": {
+      "type": "string",
+      "title": "AXCIENT_API_KEY",
+      "description": "Sets AXCIENT_API_KEY for the Axcient x360Recover MCP server.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T05:56:54.482294Z",
+    "spec_checksum": "sha256:b0e1856ebd6b1a056d006778a3d8f2b1b9631472a0257e50ea1f7eb719e4798d",
+    "spec_format": "openapi3"
+  }
+}

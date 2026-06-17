@@ -1,0 +1,46 @@
+{
+  "manifest_version": "0.3",
+  "name": "pipedrive-mcp",
+  "display_name": "Pipedrive",
+  "version": "0.1.1",
+  "description": "Full Pipedrive CRUD plus a local SQLite pipeline copy: stale deals, forecasts, aging, dupes, rep leaderboards.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/pipedrive-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/pipedrive-mcp",
+      "args": [],
+      "env": {
+        "PIPEDRIVE_API_KEY": "${user_config.pipedrive_api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "pipedrive_api_key": {
+      "type": "string",
+      "title": "PIPEDRIVE_API_KEY",
+      "description": "Sets PIPEDRIVE_API_KEY for the Pipedrive MCP server. Get a credential from https://app.pipedrive.com/settings/personal/api.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T04:14:34.506351Z",
+    "spec_checksum": "sha256:48ce8e2393ecb45975d43b512b37a18b470428a79536a94871c2f6e836454b1e",
+    "spec_format": "openapi3"
+  }
+}

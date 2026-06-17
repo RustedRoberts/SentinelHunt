@@ -1,0 +1,34 @@
+{
+  "manifest_version": "0.3",
+  "name": "cove-mcp",
+  "display_name": "Cove Data Protection",
+  "version": "0.1.2",
+  "description": "The first CLI and MCP server for Cove Data Protection \u2014 fleet-wide backup health, billing usage, and storage trends from a terminal, with the local history the vendor console doesn't keep.",
+  "author": {
+    "name": "Servosity Inc."
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/cove-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/cove-mcp",
+      "args": []
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "printing_press_version": "4.24.0",
+  "press_provenance": {
+    "printing_press_version": "4.24.0",
+    "generated_at": "2026-06-13T03:29:51.000516Z",
+    "spec_checksum": "sha256:228c03fdd348d2cdb1edcc3fefc17a3869a6c5208424fb7ff01c2923ed908ab6",
+    "spec_format": "internal"
+  }
+}
