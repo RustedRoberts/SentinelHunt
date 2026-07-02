@@ -1,0 +1,250 @@
+id: HL-017
+title: Device Code Flow Phishing - First-Time Successful Authentication
+summary: >
+  Detects successful Microsoft Entra ID sign-ins that used the OAuth 2.0 device code
+  grant (AuthenticationProtocol == "deviceCode") from a user or user/IP combination with
+  no prior device code usage in the preceding baseline window. Device code phishing -
+  increasingly delivered via ClickFix-style social engineering that tricks a user into
+  pasting a pre-filled device code into microsoft.com/devicelogin - bypasses MFA prompts
+  the user would otherwise recognise and grants the attacker a valid, long-lived token
+  without ever touching the victim's password.
+
+hypothesis: |
+  The OAuth 2.0 device authorization grant ("device code flow") exists to let
+  browser-less devices - CLI tools, IoT hardware, some Teams room consoles - authenticate
+  by displaying a short code that the user enters on a second device at
+  https://microsoft.com/devicelogin. Because the flow completes through a legitimate
+  Microsoft-hosted page, it inherits full trust: the resulting token is issued exactly as
+  if the user had signed in normally, including satisfying MFA if the user completes a
+  challenge on that page.
+
+  This makes it an attractive phishing primitive. An attacker (or a script run against
+  the Microsoft identity platform) requests a device code for a client of their choosing,
+  then delivers the code and the devicelogin URL to the victim - by email, chat message,
+  or increasingly via a ClickFix-style lure where the victim is talked through pasting a
+  short PowerShell one-liner into the Windows Run dialog that itself drives the device
+  code request and displays the code to "verify" or "join a meeting". The victim enters
+  the code, completes any MFA prompt because the page and prompt look completely
+  legitimate, and the attacker's client receives a valid access and refresh token in the
+  background - no password prompt, no obviously malicious domain, and nothing in the
+  victim's browser history beyond a visit to a real Microsoft URL.
+
+  Device code flow is rare in most estates outside a known set of DevOps, CLI, and
+  automation identities. Microsoft's own guidance for restricting the flow via
+  Conditional Access starts from the same premise: baseline who legitimately uses it,
+  then treat first-time or unexpected use as worth investigating. This hunt operationalises
+  that baseline. It flags successful (ResultType == 0) sign-ins where
+  AuthenticationProtocol is deviceCode, then subtracts users - and separately,
+  user/IP combinations - who already had a successful device code sign-in earlier in the
+  lookback window. What remains is first-time device code usage: either a legitimate
+  identity onboarding a new CLI tool, or a user completing a phishing flow for the first
+  time.
+
+author: RustedRoberts
+updated: "2026-07-02"
+version: "1.0"
+
+tactics:
+  - Initial Access
+  - Credential Access
+
+techniques:
+  - id: T1566
+    name: "Phishing"
+  - id: T1528
+    name: "Steal Application Access Token"
+
+platforms:
+  - Azure AD / Entra ID
+
+methodology: Behavioural
+maturity: Experimental
+signal: High
+
+dataSources:
+  - product: Microsoft Entra ID
+    table: SigninLogs
+    required: true
+  - product: Microsoft Entra ID
+    table: AADNonInteractiveUserSignInLogs
+    required: false
+
+whatYoullSee: |
+  One row per first-time device code sign-in: a user or user/IP combination that
+  successfully completed the device code grant with no prior successful device code
+  sign-in in the preceding baseline window.
+
+  Key fields to assess:
+
+  - **UserPrincipalName / IPAddress / Location**: who authenticated and from where. A
+    named business user (not a known automation or DevOps identity) is the primary
+    indicator worth investigating. A first-seen country or an IP with no prior history
+    for the user raises priority further.
+  - **AppDisplayName / AppId**: the application the device code was issued for. Watch
+    for generic first-party client IDs (Microsoft Authentication Broker, Azure CLI,
+    Microsoft Teams) being used from a context that does not match their normal purpose -
+    phishing kits frequently request a device code against a well-known first-party
+    client because it avoids any admin consent prompt.
+  - **IsFirstTimeForUser / IsFirstTimeForUserAndIP**: which baseline the row tripped.
+    A user who is entirely new to device code flow is higher priority than one who has
+    used it before but from a new IP.
+  - **DeviceOS / UserAgent**: the device details recorded against the sign-in. Device
+    code flow completions frequently show generic or empty device detail because the
+    token-issuing leg happens on the attacker's device, not the victim's browser session.
+  - **AuthenticationRequirement**: whether MFA was satisfied during the flow. A value of
+    multiFactorAuthentication does not rule out phishing - the victim completing MFA on
+    the legitimate Microsoft page is exactly what makes this technique effective.
+
+  A typical phishing hit presents as: a business user with no device code history in the
+  baseline window, authenticating from a residential or VPN-exit IP that does not match
+  their normal sign-in pattern, against a generic first-party client, with device details
+  that are sparse or inconsistent with the user's known devices.
+
+investigationSteps:
+  - "Confirm whether the user has a legitimate reason to use device code flow: DevOps
+    engineers using Azure CLI or PowerShell modules, and Teams room or IoT devices, are
+    the main expected sources. If the identity is a standard business user, treat the
+    result as high priority."
+  - "Check for a preceding delivery vector: search email and collaboration platform logs
+    around the sign-in time for messages referencing a code, a devicelogin link, or
+    instructions to paste something into Run or PowerShell. If the organisation has
+    endpoint telemetry, pivot to DeviceProcessEvents for the user's device around the
+    same timestamp and look for mshta.exe, powershell.exe, or cmd.exe launched via the
+    RunMRU registry key shortly before the sign-in - the signature of a ClickFix-style
+    delivery."
+  - "Review AppId / AppDisplayName against your known-good device code client list. A
+    match to Azure CLI, Microsoft Teams, or another expected first-party client from a
+    known DevOps identity is far lower priority than an unrecognised or unexpected
+    client for a standard user."
+  - "Pivot on the resulting token: review subsequent sign-ins and Microsoft Graph
+    activity for the same UserId in the hours following the flagged event, particularly
+    mailbox access, OAuth app consent grants, or MFA method registration - these are the
+    typical follow-on actions once an attacker holds a valid token."
+  - "Check ConditionalAccessStatus on the sign-in. Device code flow is exempt from many
+    Conditional Access policies unless the tenant has explicitly targeted the
+    Authentication Flows condition, so a status of notApplied does not indicate a
+    detection gap elsewhere - it is expected, and is part of why this technique works."
+  - "If confirmed malicious, revoke the user's refresh tokens and sessions immediately,
+    reset credentials, review and revoke any OAuth app consents granted after the event,
+    and check for new device registrations or authentication method additions tied to
+    the same session."
+
+falsePositives:
+  - DevOps and platform engineering identities authenticating Azure CLI, Azure PowerShell,
+    or other CLI tooling for the first time, or from a new build agent or workstation.
+    These should be identifiable by the AppId matching a known CLI client and the user
+    belonging to a recognised engineering group.
+  - Teams Room systems, conference room consoles, and other browser-less devices
+    completing initial device code enrolment. Source IP will typically be an internal
+    corporate range rather than a residential or VPN-exit address.
+  - IoT or line-of-business devices that use device code flow as their only supported
+    authentication method. These typically recur on a predictable schedule and from a
+    stable, small set of source IPs once the initial baseline period has passed.
+  - Security or IT staff intentionally testing device code flow as part of a Conditional
+    Access policy review or tabletop exercise.
+
+curatorNotes: |
+  Marked Experimental. Device code phishing is a genuinely high-signal technique when it
+  fires against a non-technical business identity, but the false-positive profile is
+  entirely dependent on how much legitimate device code usage already exists in the
+  environment. Tenants with active DevOps tooling will need a maintained allow-list of
+  known client IDs and identities before this is promotable.
+
+  Tuning considerations:
+  - Build a watchlist of expected device-code identities (service accounts, DevOps
+    group membership, known Teams Room device accounts) and exclude them from the
+    baseline-subtraction logic rather than filtering them out entirely, so a genuine
+    anomaly from an excluded identity is not silently dropped.
+  - The baseline window (30 days) and detection window (1 day) are heuristics balancing
+    noise against detection latency. Widening the baseline reduces false positives from
+    infrequent-but-legitimate CLI use at the cost of slower flagging of newly compromised
+    device code channels; shortening the detection window increases alert frequency.
+  - Consider the strongest structural mitigation alongside this hunt rather than instead
+    of it: a Conditional Access policy targeting the Authentication Flows condition to
+    block device code flow tenant-wide, with documented exclusions for the identities
+    this hunt's baseline surfaces as legitimate.
+  - If the tenant has endpoint telemetry, correlating flagged sign-ins against
+    DeviceProcessEvents for RunMRU-triggered PowerShell or mshta activity in the minutes
+    beforehand meaningfully increases confidence and is worth building as a follow-on
+    enrichment hunt.
+
+  Promotion criteria: sustained true-positive rate above 70% across two or more customer
+  environments once known-legitimate device code identities are excluded, with a
+  documented allow-list methodology.
+
+references:
+  - label: "MITRE ATT&CK: Phishing (T1566)"
+    url: https://attack.mitre.org/techniques/T1566/
+  - label: "MITRE ATT&CK: Steal Application Access Token (T1528)"
+    url: https://attack.mitre.org/techniques/T1528/
+  - label: "Microsoft Entra: Device code flow (OAuth 2.0)"
+    url: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code
+  - label: "Microsoft Entra: Restrict device code flow with Conditional Access"
+    url: https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-teams-devices-device-code-flow
+  - label: "Microsoft Entra: SigninLogs AuthenticationProtocol column reference"
+    url: https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/signinlogs
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      let baselineLookback = 30d;                                                                       // how far back to look for prior legitimate device code usage
+      let detectionWindow = 1d;                                                                         // window to scan for new (first-time) device code sign-ins
+      let DeviceCodeSignIns =                                                                            // successful device code sign-ins across the full lookback
+          union SigninLogs, AADNonInteractiveUserSignInLogs
+          | where TimeGenerated > ago(baselineLookback)
+          | where AuthenticationProtocol == "deviceCode"                                                 // OAuth 2.0 device authorization grant only
+          | where ResultType == 0                                                                         // successful completions only - failed attempts did not yield a token
+          | extend DeviceDetail = coalesce(                                                              // normalise DeviceDetail across the two source tables
+              column_ifexists("DeviceDetail_dynamic", dynamic(null)),
+              todynamic(column_ifexists("DeviceDetail_string", "")))
+          | project
+              TimeGenerated,
+              UserPrincipalName,
+              UserId,
+              IPAddress,
+              AppId,
+              AppDisplayName,
+              ResourceDisplayName,
+              AuthenticationRequirement,
+              ConditionalAccessStatus,
+              DeviceOS = tostring(DeviceDetail.operatingSystem),
+              UserAgent,
+              CorrelationId;
+      let Baseline =                                                                                     // identities/IP combos with a device code success BEFORE the detection window
+          DeviceCodeSignIns
+          | where TimeGenerated < ago(detectionWindow)
+          | summarize BaselineUserSeen = 1 by UserPrincipalName
+          | project UserPrincipalName;
+      let BaselineUserAndIP =                                                                             // same, but keyed on user+IP for the tighter secondary check
+          DeviceCodeSignIns
+          | where TimeGenerated < ago(detectionWindow)
+          | summarize BaselineUserIPSeen = 1 by UserPrincipalName, IPAddress
+          | project UserPrincipalName, IPAddress;
+      DeviceCodeSignIns
+      | where TimeGenerated >= ago(detectionWindow)                                                       // scope to the current detection window
+      | join kind=leftanti Baseline on UserPrincipalName                                                   // drop rows where the user already had device code success in the baseline
+      | extend IsFirstTimeForUser = true
+      | join kind=leftouter (                                                                              // separately flag whether this specific user+IP combo is also new
+          BaselineUserAndIP | extend IsFirstTimeForUserAndIP = false
+        ) on UserPrincipalName, IPAddress
+      | extend IsFirstTimeForUserAndIP = iff(isnotempty(IsFirstTimeForUserAndIP), IsFirstTimeForUserAndIP, true)
+      | project
+          TimeGenerated,
+          UserPrincipalName,
+          IsFirstTimeForUser,
+          IsFirstTimeForUserAndIP,
+          IPAddress,
+          AppId,
+          AppDisplayName,
+          ResourceDisplayName,
+          AuthenticationRequirement,
+          ConditionalAccessStatus,
+          DeviceOS,
+          UserAgent,
+          CorrelationId,
+          UserId
+      | sort by TimeGenerated desc
+
+relatedHunts:
+  - HL-004: Suspicious Device Registration Following Microsoft Authentication Broker Sign-In
