@@ -348,7 +348,7 @@ implementations:
           | extend AccessRightsStr = tostring(AdditionalFields.DesiredAccess)
           | extend AccessRightsNum = tolong(AdditionalFields.DesiredAccess)
           | where AccessRightsStr has_any ("0x1", "0x1fffff")
-               or (AccessRightsNum & 1) != 0
+               or binary_and(AccessRightsNum, 1) != 0
                or AccessRightsNum == 2097151
           // Exclude security products legitimately inspecting each other -
           // refine by SHA256 in tuning rather than filename.
