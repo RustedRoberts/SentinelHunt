@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SentinelHunt — Detection Validation Report</title>
+<style>
+  :root {
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --hair: #d9dfe7;
+    --hair-strong: #c3ccd7;
+    --ink: #172029;
+    --ink-soft: #43505f;
+    --ink-mute: #6b7789;
+    --accent: #0b7d9c;
+    --accent-soft: #e2f1f6;
+    --crit: #c92a43;
+    --crit-bg: #fbe6ea;
+    --high: #b8500e;
+    --high-bg: #fbeadd;
+    --med: #8a6410;
+    --med-bg: #f7eed6;
+    --ok: #0d7a5f;
+    --ok-bg: #dcf1ea;
+    --shadow: 0 1px 2px rgba(23,32,41,.06), 0 8px 24px rgba(23,32,41,.05);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f14;
+      --surface: #131a22;
+      --surface-2: #0f151c;
+      --hair: #243040;
+      --hair-strong: #33445a;
+      --ink: #e7edf4;
+      --ink-soft: #b3c0cf;
+      --ink-mute: #7d8b9c;
+      --accent: #45c2e0;
+      --accent-soft: #10303a;
+      --crit: #ff6079;
+      --crit-bg: #2b1219;
+      --high: #ff9a5c;
+      --high-bg: #2a1a10;
+      --med: #f0c862;
+      --med-bg: #262013;
+      --ok: #4fd6a8;
+      --ok-bg: #0f2a22;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f3f5f8; --surface: #ffffff; --surface-2: #eef1f5; --hair: #d9dfe7; --hair-strong: #c3ccd7;
+    --ink: #172029; --ink-soft: #43505f; --ink-mute: #6b7789; --accent: #0b7d9c; --accent-soft: #e2f1f6;
+    --crit: #c92a43; --crit-bg: #fbe6ea; --high: #b8500e; --high-bg: #fbeadd; --med: #8a6410; --med-bg: #f7eed6;
+    --ok: #0d7a5f; --ok-bg: #dcf1ea; --shadow: 0 1px 2px rgba(23,32,41,.06), 0 8px 24px rgba(23,32,41,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0f14; --surface: #131a22; --surface-2: #0f151c; --hair: #243040; --hair-strong: #33445a;
+    --ink: #e7edf4; --ink-soft: #b3c0cf; --ink-mute: #7d8b9c; --accent: #45c2e0; --accent-soft: #10303a;
+    --crit: #ff6079; --crit-bg: #2b1219; --high: #ff9a5c; --high-bg: #2a1a10; --med: #f0c862; --med-bg: #262013;
+    --ok: #4fd6a8; --ok-bg: #0f2a22; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px 96px; }
+  a { color: var(--accent); }
+
+  /* ---- Masthead ---- */
+  header.mast {
+    border-bottom: 1px solid var(--hair);
+    background:
+      radial-gradient(120% 140% at 100% 0%, var(--accent-soft) 0%, transparent 55%);
+  }
+  .mast-inner { max-width: 1060px; margin: 0 auto; padding: 38px 24px 30px; }
+  .kicker {
+    font-family: var(--mono); font-size: .74rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .kicker::before { content: ""; width: 26px; height: 2px; background: var(--accent); display: inline-block; }
+  h1 {
+    font-size: clamp(1.9rem, 4vw, 2.7rem); line-height: 1.08; margin: 0 0 14px;
+    letter-spacing: -.02em; text-wrap: balance; font-weight: 700;
+  }
+  h1 .u { color: var(--accent); }
+  .dek { font-size: 1.06rem; color: var(--ink-soft); max-width: 60ch; margin: 0; }
+  .meta {
+    margin-top: 24px; display: flex; flex-wrap: wrap; gap: 8px 26px;
+    font-family: var(--mono); font-size: .78rem; color: var(--ink-mute);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---- Stat band ---- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 34px 0 8px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow);
+  }
+  .stat .n { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat .n.ok { color: var(--ok); }
+  .stat .l { font-size: .78rem; color: var(--ink-mute); margin-top: 2px; }
+
+  section { margin-top: 52px; }
+  h2 {
+    font-size: 1.32rem; letter-spacing: -.01em; margin: 0 0 6px; font-weight: 700;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .idx { font-family: var(--mono); font-size: .8rem; color: var(--accent); font-weight: 600; }
+  .sub { color: var(--ink-mute); margin: 0 0 22px; font-size: .95rem; max-width: 65ch; }
+  p.body { max-width: 68ch; color: var(--ink-soft); }
+  p.body strong { color: var(--ink); }
+
+  /* ---- Timeline ---- */
+  .chain { border-left: 2px solid var(--hair-strong); margin-left: 8px; padding-left: 0; }
+  .step { position: relative; padding: 0 0 22px 30px; }
+  .step::before {
+    content: ""; position: absolute; left: -7px; top: 4px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--surface); border: 2px solid var(--accent);
+  }
+  .step.impact::before { border-color: var(--crit); background: var(--crit); }
+  .step .t {
+    font-family: var(--mono); font-size: .72rem; color: var(--ink-mute); letter-spacing: .04em;
+  }
+  .step .h { font-weight: 650; margin: 1px 0 2px; }
+  .step .d { font-size: .9rem; color: var(--ink-soft); }
+  .step .d code { font-family: var(--mono); font-size: .82em; color: var(--ink); background: var(--surface-2); padding: .5px 5px; border-radius: 4px; }
+  .step .tag { font-family: var(--mono); font-size: .68rem; color: var(--accent); margin-left: 6px; }
+
+  /* ---- Entities ---- */
+  .ent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .ent {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; padding: 16px 16px 18px;
+  }
+  .ent h3 {
+    margin: 0 0 12px; font-size: .74rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-mute); font-weight: 700;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: .78rem;
+    background: var(--surface-2); border: 1px solid var(--hair); color: var(--ink-soft);
+    padding: 3px 8px; border-radius: 6px; margin: 0 4px 6px 0;
+  }
+  .chip.bad { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 40%, var(--hair)); background: var(--crit-bg); }
+  .chip.key { color: var(--high); border-color: color-mix(in srgb, var(--high) 40%, var(--hair)); background: var(--high-bg); }
+
+  /* ---- Hunt cards ---- */
+  .phase-label {
+    font-family: var(--mono); font-size: .74rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-mute); margin: 30px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--hair);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .phase-label span:last-child { color: var(--accent); }
+  .hunt {
+    background: var(--surface); border: 1px solid var(--hair); border-left: 3px solid var(--sev, var(--accent));
+    border-radius: 10px; padding: 15px 17px; margin-bottom: 12px; box-shadow: var(--shadow);
+  }
+  .hunt.crit { --sev: var(--crit); }
+  .hunt.high { --sev: var(--high); }
+  .hunt.med { --sev: var(--med); }
+  .hunt-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hid { font-family: var(--mono); font-size: .8rem; font-weight: 600; color: var(--ink-mute); }
+  .htitle { font-weight: 650; font-size: 1rem; flex: 1 1 260px; }
+  .att {
+    font-family: var(--mono); font-size: .72rem; color: var(--accent);
+    background: var(--accent-soft); padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+  }
+  .verdict {
+    font-family: var(--mono); font-size: .68rem; font-weight: 700; letter-spacing: .06em;
+    color: var(--ok); background: var(--ok-bg); padding: 3px 8px; border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .verdict::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .evidence {
+    margin-top: 11px; font-family: var(--mono); font-size: .8rem; line-height: 1.5;
+    background: var(--surface-2); border: 1px solid var(--hair); border-radius: 8px;
+    padding: 10px 12px; color: var(--ink-soft); overflow-x: auto;
+  }
+  .evidence .k { color: var(--ink-mute); }
+  .evidence .hit { color: var(--crit); font-weight: 600; }
+  .evidence .ex { color: var(--ok); }
+
+  /* ---- Defects ---- */
+  .defect {
+    background: var(--surface); border: 1px solid var(--hair); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow);
+  }
+  .defect-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .defect-head .hid { font-size: .85rem; color: var(--ink); }
+  .badge-fixed {
+    font-family: var(--mono); font-size: .68rem; font-weight: 700; letter-spacing: .05em;
+    color: var(--ok); background: var(--ok-bg); padding: 3px 9px; border-radius: 20px;
+  }
+  .diff { font-family: var(--mono); font-size: .8rem; border-radius: 8px; overflow: hidden; border: 1px solid var(--hair); margin-top: 10px; }
+  .diff div { padding: 3px 12px; overflow-x: auto; white-space: pre; }
+  .diff .del { background: var(--crit-bg); color: var(--crit); }
+  .diff .add { background: var(--ok-bg); color: var(--ok); }
+
+  /* ---- Coverage strip ---- */
+  .cov { display: flex; flex-wrap: wrap; gap: 7px; }
+  .cov .t {
+    font-family: var(--mono); font-size: .74rem; color: var(--ink-soft);
+    background: var(--surface); border: 1px solid var(--hair-strong); padding: 4px 9px; border-radius: 6px;
+  }
+  .cov .t b { color: var(--accent); font-weight: 600; }
+
+  footer {
+    margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--hair);
+    font-size: .84rem; color: var(--ink-mute);
+  }
+  footer code { font-family: var(--mono); font-size: .82em; color: var(--ink-soft); }
+  .note {
+    background: var(--surface-2); border: 1px solid var(--hair); border-left: 3px solid var(--med);
+    border-radius: 8px; padding: 12px 15px; font-size: .9rem; color: var(--ink-soft); margin-top: 14px;
+  }
+  .note b { color: var(--ink); }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .ent-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="mast-inner">
+    <p class="kicker">Threat Hunt · Detection Validation</p>
+    <h1>Every hunt was tested against a live <span class="u">ransomware intrusion</span> — not just checked for syntax.</h1>
+    <p class="dek">The 16 SentinelHunt KQL analytics were run against a staged, end-to-end attack in Azure Data Explorer, seeded inside ~800 rows of benign activity. Each hunt had to surface the threat and suppress the noise.</p>
+    <div class="meta">
+      <span><b>Cluster</b> kvc-…northeurope.kusto.windows.net</span>
+      <span><b>Database</b> Detectionengine</span>
+      <span><b>Dataset</b> 885 rows · 9 tables</span>
+      <span><b>Run</b> 2026-07-11</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="stats">
+    <div class="stat"><div class="n">16</div><div class="l">Hunts exercised</div></div>
+    <div class="stat"><div class="n ok">16</div><div class="l">Detected the intrusion</div></div>
+    <div class="stat"><div class="n ok">2</div><div class="l">Query defects found &amp; fixed</div></div>
+    <div class="stat"><div class="n">~800</div><div class="l">Benign rows as cover</div></div>
+  </div>
+
+  <section id="summary">
+    <h2><span class="idx">01</span> Executive summary</h2>
+    <p class="body">A single simulated adversary — a ransomware affiliate — was played end to end against the tenant <strong>cushioning.onmicrosoft.com</strong> and its on-prem <strong>CORP</strong> domain: from an adversary-in-the-middle phish of a finance user, through defence evasion and credential theft, to Pass-the-Hash lateral movement and a PsExec-style ransomware service push onto a file server. The telemetry was written into nine Microsoft&nbsp;Defender / Entra tables and diluted with realistic benign traffic so that each analytic had to <strong>find</strong> the attack rather than simply return the only rows present.</p>
+    <p class="body">All 16 hunts detected their stage of the intrusion and ranked it above the background. Two hunts — <strong>HL-003</strong> and <strong>HL-015</strong> — were found to contain an invalid KQL operator that made them fail to run at all; both are now fixed and verified. One hunt, <strong>HL-013</strong>, carries a placeholder domain list that must be tuned to the real environment before it will match.</p>
+  </section>
+
+  <section id="chain">
+    <h2><span class="idx">02</span> The intrusion, stage by stage</h2>
+    <p class="sub">Ordered by attack progression. Timestamps span a four-day dwell; each stage names the hunt(s) that caught it.</p>
+    <div class="chain">
+      <div class="step">
+        <div class="t">2026-07-08 · 08:14 UTC</div>
+        <div class="h">AiTM sign-in from a Tor exit <span class="tag">HL-004</span></div>
+        <div class="d"><code>derek.hodgson</code> authenticates to the Microsoft Authentication Broker from <code>185.220.101.45</code> (Germany) after an adversary-in-the-middle phish.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-08 · 08:17 UTC</div>
+        <div class="h">Rogue device joined for persistence <span class="tag">HL-004</span></div>
+        <div class="d">A device <code>AZ-JOIN-DESKTOP-77</code> is registered 3 minutes after the broker sign-in — a durable foothold on the identity.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 09:02 UTC</div>
+        <div class="h">Phishing payload detonates <span class="tag">HL-002</span></div>
+        <div class="d"><code>winword.exe</code> spawns <code>powershell.exe -EncodedCommand</code> — a base64 download cradle reaching back to <code>185.220.101.45:8443</code>.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 09:20 UTC</div>
+        <div class="h">First LSASS theft blocked by ASR <span class="tag">HL-011</span></div>
+        <div class="d">Defender's attack-surface-reduction rule blocks the credential-dump attempt three times in four minutes.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 09:34–09:38 UTC</div>
+        <div class="h">Defender dismantled <span class="tag">HL-011</span> <span class="tag">HL-012</span></div>
+        <div class="d">Tamper protection, real-time monitoring, antispyware and the WinDefend service are disabled via <code>reg.exe</code> and <code>Set-MpPreference</code>.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 10:05 UTC</div>
+        <div class="h">LSASS dump succeeds <span class="tag">HL-003</span></div>
+        <div class="d">A renamed <code>procdump</code> (<code>svchost.exe</code> in <code>C:\ProgramData\Adobe\svc</code>) opens LSASS with <code>0x1fffff</code> and writes <code>out.dmp</code>.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 11:00 UTC</div>
+        <div class="h">Firewall opened, telemetry rule deleted <span class="tag">HL-008</span> <span class="tag">HL-009</span></div>
+        <div class="d">Inbound RDP (3389) is allowed and the <code>MDE Cloud Telemetry</code> rule is removed.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 13:12 UTC</div>
+        <div class="h">Attacker returns to the Azure Portal <span class="tag">HL-010</span></div>
+        <div class="d">A sign-in from <code>45.155.205.233</code> (St&nbsp;Petersburg, RU) on an unmanaged device scores 110 — Critical.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 13:40–13:50 UTC</div>
+        <div class="h">MDE sensor killed <span class="tag">HL-014</span> <span class="tag">HL-015</span></div>
+        <div class="d"><code>sc stop Sense</code>, <code>net stop WinDefend</code>, <code>taskkill MsSense.exe</code>, and a remote WMI broker terminate the sensor.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-11 · 14:05–14:37 UTC</div>
+        <div class="h">Lateral movement across the estate <span class="tag">HL-001</span> <span class="tag">HL-005</span></div>
+        <div class="d">Workstation-to-workstation RDP to three hosts, then an SMB sweep of seven servers in six minutes as <code>CORP\svc-sql</code>.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-10 · 01:05 UTC</div>
+        <div class="h">Pass-the-Hash burst <span class="tag">HL-013</span></div>
+        <div class="d">The stolen <code>svc-sql</code> hash drives NTLM logons to 11 servers from 3 hosts with a null SID — classic PtH.</div>
+      </div>
+      <div class="step">
+        <div class="t">2026-07-10 · 02:14 UTC</div>
+        <div class="h">External SMB &amp; port scan <span class="tag">HL-006</span></div>
+        <div class="d">The attacker VPS reaches <code>CORP-EDGE01</code> on 445 and probes RDP/SSH/WinRM.</div>
+      </div>
+      <div class="step impact">
+        <div class="t">2026-07-11 · 15:10 UTC</div>
+        <div class="h">Ransomware service deployed <span class="tag">HL-016</span></div>
+        <div class="d">A remote <code>RCreateServiceW</code> RPC call to <code>CORP-FS01</code> registers the transient service <code>lockbitsvc</code> (<code>PSEXESVC.exe</code>) — the impact stage.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="entities">
+    <h2><span class="idx">03</span> Key entities</h2>
+    <p class="sub">The consistent hosts, accounts and infrastructure that thread through every table.</p>
+    <div class="ent-grid">
+      <div class="ent">
+        <h3>Adversary infrastructure</h3>
+        <span class="chip bad">185.220.101.45 · Tor/DE</span>
+        <span class="chip bad">45.155.205.233 · RU</span>
+        <span class="chip bad">:8443 C2</span>
+        <span class="chip bad">PSEXESVC.exe</span>
+      </div>
+      <div class="ent">
+        <h3>Compromised identities</h3>
+        <span class="chip key">derek.hodgson</span>
+        <span class="chip key">CORP\svc-sql</span>
+        <span class="chip">msp-consultant (guest GA)</span>
+      </div>
+      <div class="ent">
+        <h3>Impacted hosts</h3>
+        <span class="chip key">FIN-WKS-014 · patient zero</span>
+        <span class="chip">CORP-FS01</span>
+        <span class="chip">CORP-EDGE01</span>
+        <span class="chip">+ 11 servers (PtH)</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="results">
+    <h2><span class="idx">04</span> Hunt results</h2>
+    <p class="sub">Each analytic, the evidence it returned, and its MITRE ATT&amp;CK technique. Grouped by kill-chain phase; every hunt returned the true positive at the top of its output.</p>
+
+    <div class="phase-label"><span>Initial Access &amp; Identity</span><span>3 hunts</span></div>
+
+    <div class="hunt crit">
+      <div class="hunt-head"><span class="hid">HL-004</span><span class="htitle">Device registration after broker sign-in</span><span class="att">T1098.005</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">user</span> derek.hodgson &nbsp; <span class="k">broker sign-in</span> 185.220.101.45 (Germany) &nbsp;→&nbsp; <span class="hit">device AZ-JOIN-DESKTOP-77 joined +3m</span></div>
+    </div>
+    <div class="hunt crit">
+      <div class="hunt-head"><span class="hid">HL-010</span><span class="htitle">Dynamic multi-factor sign-in risk score</span><span class="att">T1078</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">derek.hodgson · Azure Portal · RU</span> &nbsp; <span class="hit">score 110 — Critical</span> &nbsp; <span class="k">reasons</span> New-Country · Unseen-Device · Sensitive-App · Untrusted-Net · Entra-Risk · Combo &nbsp; <span class="ex">(12 benign sign-ins scored Low)</span></div>
+    </div>
+    <div class="hunt med">
+      <div class="hunt-head"><span class="hid">HL-007</span><span class="htitle">Privileged Entra directory role audit</span><span class="att">T1078.004</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">Global Administrator</span> &nbsp; <span class="hit">guest msp-consultant · UserType=Guest · RiskState=AtRisk</span> &nbsp; <span class="ex">(joined against live EntraOps classification feed)</span></div>
+    </div>
+
+    <div class="phase-label"><span>Execution &amp; Defense Evasion</span><span>6 hunts</span></div>
+
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-002</span><span class="htitle">Encoded PowerShell command</span><span class="att">T1059.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014 · derek.hodgson</span> &nbsp; <span class="hit">winword.exe → powershell.exe -EncodedCommand</span> &nbsp; <span class="k">rank</span> High — Office parent</div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-011</span><span class="htitle">MDE enforcement posture &amp; clusters</span><span class="att">T1562.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="hit">FIN-WKS-014: AsrLsassCredentialTheftBlocked ×3</span> + <span class="hit">TamperProtectionModificationAttempted ×3</span> &nbsp; <span class="ex">(single benign enforcement events across the estate did not cluster)</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-012</span><span class="htitle">Defender tampering — PowerShell &amp; registry</span><span class="att">T1562.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014 · 5 controls disabled</span> &nbsp; <span class="hit">TamperProtection=0 · DisableAntiSpyware=1 · RTP off · WinDefend Start=4 · SecurityHealth off</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-008</span><span class="htitle">Windows Firewall tampering</span><span class="att">T1562.004</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014 · derek.hodgson</span> &nbsp; <span class="hit">add RDP-In</span> + <span class="hit">delete 'MDE Cloud Telemetry'</span> &nbsp; <span class="ex">(SYSTEM/GPO rule change excluded)</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-009</span><span class="htitle">Remote-access port exposure</span><span class="att">T1021.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014</span> &nbsp; <span class="hit">2× inbound Allow LocalPort 3389 (RDP)</span> &nbsp; <span class="ex">(benign outbound :8080 dev rule excluded)</span></div>
+    </div>
+    <div class="hunt crit">
+      <div class="hunt-head"><span class="hid">HL-003</span><span class="htitle">LSASS memory access for credential dumping</span><span class="att">T1003.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014 · svc-sql</span> &nbsp; <span class="hit">svchost.exe (C:\ProgramData\Adobe\svc) → lsass.exe · 0x1fffff</span> &nbsp; <span class="ex">(Defender's own LSASS access excluded by path)</span></div>
+    </div>
+
+    <div class="phase-label"><span>Credential Access &amp; Sensor Kill</span><span>3 hunts</span></div>
+
+    <div class="hunt crit">
+      <div class="hunt-head"><span class="hid">HL-013</span><span class="htitle">Pass-the-Hash — behavioural triage</span><span class="att">T1550.002</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="hit">svc-sql · TriageScore 6</span> — 11 hosts · 3 source IPs · null SID · 0.7h burst &nbsp; <span class="ex">(benign users scored 0–2 and sorted below)</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-014</span><span class="htitle">EDR / AV service stop</span><span class="att">T1562.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014</span> &nbsp; <span class="hit">sc.exe stop Sense · net stop WinDefend</span> &nbsp; <span class="ex">(benign 'sc query' / 'Get-Service' excluded)</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-015</span><span class="htitle">EDR / AV process termination</span><span class="att">T1562.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="hit">3 surfaces</span> — taskkill MsSense.exe · rundll32 terminate-handle 0x1fffff · WmiPrvSE remote broker kill &nbsp; <span class="ex">(CrowdStrike self-inspection excluded)</span></div>
+    </div>
+
+    <div class="phase-label"><span>Lateral Movement &amp; Impact</span><span>4 hunts</span></div>
+
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-001</span><span class="htitle">RDP lateral movement between workstations</span><span class="att">T1021.001</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014 · svc-sql</span> &nbsp; <span class="hit">RDP → FIN-WKS-021, FIN-WKS-033, HR-WKS-007</span> &nbsp; <span class="ex">(JUMP→server RDP excluded)</span></div>
+    </div>
+    <div class="hunt high">
+      <div class="hunt-head"><span class="hid">HL-005</span><span class="htitle">SMB lateral movement — high-volume 445</span><span class="att">T1021.002</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">FIN-WKS-014</span> &nbsp; <span class="hit">7 unique servers on 445 in 6 min</span> &nbsp; <span class="ex">(55+ benign low-volume SMB rows below threshold)</span></div>
+    </div>
+    <div class="hunt med">
+      <div class="hunt-head"><span class="hid">HL-006</span><span class="htitle">SMB connections from public IPs</span><span class="att">T1133</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">CORP-EDGE01</span> ↔ <span class="hit">45.155.205.233 (St Petersburg, RU)</span> &nbsp; 2 success + 3 scan fails <span class="k">(3389, 22, 5985)</span></div>
+    </div>
+    <div class="hunt crit">
+      <div class="hunt-head"><span class="hid">HL-016</span><span class="htitle">Remote service creation via RPC</span><span class="att">T1543.003</span><span class="verdict">DETECTED</span></div>
+      <div class="evidence"><span class="k">CORP-FS01 ← 10.20.10.14 · CORP\svc-sql</span> &nbsp; <span class="hit">RCreateServiceW → transient service 'lockbitsvc' (PSEXESVC.exe)</span> &nbsp; <span class="ex">(benign RPC on other interfaces excluded)</span></div>
+    </div>
+  </section>
+
+  <section id="defects">
+    <h2><span class="idx">05</span> Defects found &amp; fixed</h2>
+    <p class="sub">Running the analytics — rather than eyeballing them — exposed two that could not execute in KQL at all. Both are corrected on branch <code style="font-family:var(--mono)">claude/kusto-mcp-integration</code> (commit f3e09c6) and re-verified above.</p>
+
+    <div class="defect">
+      <div class="defect-head"><span class="hid">HL-003 · LSASS credential access</span><span class="badge-fixed">FIXED</span></div>
+      <p class="body" style="margin:.2em 0 0">Two issues in one clause: <code style="font-family:var(--mono)">has_any</code> was applied to a <code style="font-family:var(--mono)">tolong()</code> value (it requires a string), and <code style="font-family:var(--mono)">&amp;</code> was used as a bitwise-AND operator — which KQL does not have. The query raised <em>Syntax error: Expected: )</em> and never ran.</p>
+      <div class="diff">
+        <div class="del">- | where AccessRights has_any ("0x1fffff","0x1010",…) or (AccessRights &amp; 16) != 0</div>
+        <div class="add">+ | where AccessRightsHex has_any ("0x1fffff","0x1010",…) or binary_and(AccessRights, 16) != 0</div>
+      </div>
+    </div>
+
+    <div class="defect">
+      <div class="defect-head"><span class="hid">HL-015 · EDR process termination</span><span class="badge-fixed">FIXED</span></div>
+      <p class="body" style="margin:.2em 0 0">The Arm-2 terminate-rights test used the same non-existent <code style="font-family:var(--mono)">&amp;</code> operator, so the whole three-arm union failed to compile.</p>
+      <div class="diff">
+        <div class="del">- or (AccessRightsNum &amp; 1) != 0</div>
+        <div class="add">+ or binary_and(AccessRightsNum, 1) != 0</div>
+      </div>
+    </div>
+
+    <div class="note"><b>Tuning note — HL-013.</b> The Pass-the-Hash hunt ships with a placeholder domain allow-list <code style="font-family:var(--mono)">("domain1","domain2","domain3")</code>. On real data it returns nothing until tuned to the environment's NetBIOS domains; it was run here tuned to <code style="font-family:var(--mono)">corp</code>. Worth flagging in the hunt's curator notes as a required deployment step.</div>
+  </section>
+
+  <section id="coverage">
+    <h2><span class="idx">06</span> ATT&amp;CK coverage exercised</h2>
+    <p class="sub">Techniques the validated intrusion touched across the kill chain.</p>
+    <div class="cov">
+      <span class="t"><b>T1566</b> Phishing</span>
+      <span class="t"><b>T1098.005</b> Device Registration</span>
+      <span class="t"><b>T1078</b> Valid Accounts</span>
+      <span class="t"><b>T1059.001</b> PowerShell</span>
+      <span class="t"><b>T1562.001</b> Disable Tools</span>
+      <span class="t"><b>T1562.004</b> Disable Firewall</span>
+      <span class="t"><b>T1003.001</b> LSASS Memory</span>
+      <span class="t"><b>T1550.002</b> Pass-the-Hash</span>
+      <span class="t"><b>T1021.001</b> RDP</span>
+      <span class="t"><b>T1021.002</b> SMB/Admin Shares</span>
+      <span class="t"><b>T1133</b> External Remote Services</span>
+      <span class="t"><b>T1543.003</b> Windows Service</span>
+      <span class="t"><b>T1569.002</b> Service Execution</span>
+    </div>
+  </section>
+
+  <footer>
+    <p>Generated from live query runs against Azure Data Explorer database <code>Detectionengine</code> via the <code>kusto-mcp</code> server. Dataset is fully synthetic — a staged intrusion (<code>cushioning.onmicrosoft.com</code> / <code>CORP</code>) seeded in ~800 rows of benign telemetry across DeviceNetworkEvents, DeviceProcessEvents, DeviceEvents, DeviceRegistryEvents, SecurityEvent, SigninLogs, AADNonInteractiveUserSignInLogs, AuditLogs and IdentityInfo. No production or personal data is present. Hostnames, accounts and IPs are illustrative; public IPs are real routable addresses used only for geo-resolution realism.</p>
+  </footer>
+</div>
+</body>
+</html>
