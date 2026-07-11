@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "kusto-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "kusto-mcp@latest"
+      ]
+    }
+  }
+}
