@@ -6,6 +6,7 @@ import Methodology from './pages/Methodology'
 import Investigation from './pages/Investigation'
 import Blog from './pages/Blog'
 import BlogPost from './pages/BlogPost'
+import AskChris from './pages/AskChris'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/methodology" element={<Methodology />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
+        <Route path="/ask" element={<AskChris />} />
       </Routes>
     </HashRouter>
   )

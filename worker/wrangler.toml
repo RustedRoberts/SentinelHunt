@@ -1,0 +1,13 @@
+name = "cv-chatbot"
+main = "worker.js"
+compatibility_date = "2026-07-25"
+
+# Create this with: wrangler kv namespace create RATE_LIMIT
+# then paste the id it gives you below.
+kv_namespaces = [
+  { binding = "RATE_LIMIT", id = "0ff217e78dc345089d3060b4304aeae1" }
+]
+
+# ANTHROPIC_API_KEY is NOT set here - it goes in as a secret instead, via:
+#   wrangler secret put ANTHROPIC_API_KEY
+# so it never ends up committed to source control.
