@@ -1,6 +1,7 @@
 name = "cv-chatbot"
 main = "worker.js"
 compatibility_date = "2026-07-25"
+compatibility_flags = ["nodejs_compat"] # required by @microlabs/otel-cf-workers (AsyncLocalStorage)
 
 # Create this with: wrangler kv namespace create RATE_LIMIT
 # then paste the id it gives you below.
@@ -11,3 +12,15 @@ kv_namespaces = [
 # ANTHROPIC_API_KEY is NOT set here - it goes in as a secret instead, via:
 #   wrangler secret put ANTHROPIC_API_KEY
 # so it never ends up committed to source control.
+#
+# Same for AXIOM_TOKEN (Axiom API token for log/trace ingestion):
+#   wrangler secret put AXIOM_TOKEN
+
+[vars]
+AXIOM_DATASET = "ai_chatbot_logs"
+
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = true

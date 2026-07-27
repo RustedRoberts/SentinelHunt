@@ -27,6 +27,14 @@
 // returns something unparseable, the message is treated as not flagged and
 // proceeds to the main call as normal. A bug in this addition should degrade
 // back to "only the system-prompt-level defenses", not break the bot.
+//
+// Request/response traces stream to Axiom via OpenTelemetry (see instrument()
+// call at the bottom of this file). AXIOM_DATASET is a plain var; AXIOM_TOKEN
+// is a secret (wrangler secret put AXIOM_TOKEN) and never lives in this repo.
+
+import { instrument } from "@microlabs/otel-cf-workers";
+
+const AXIOM_EU_TRACES_URL = "https://eu-central-1.aws.edge.axiom.co/v1/traces";
 
 const ALLOWED_ORIGIN = "https://rustedroberts.github.io"; // update if your site differs
 const MODEL = "claude-haiku-4-5-20251001";
@@ -338,7 +346,7 @@ async function screenMessage(env, text) {
   }
 }
 
-export default {
+const handler = {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
@@ -417,3 +425,16 @@ export default {
     return jsonResponse({ reply });
   },
 };
+
+const otelConfig = (env, _trigger) => ({
+  exporter: {
+    url: AXIOM_EU_TRACES_URL,
+    headers: {
+      Authorization: `Bearer ${env.AXIOM_TOKEN}`,
+      "X-Axiom-Dataset": env.AXIOM_DATASET,
+    },
+  },
+  service: { name: "cv-chatbot" },
+});
+
+export default instrument(handler, otelConfig);
