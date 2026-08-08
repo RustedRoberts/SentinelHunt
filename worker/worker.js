@@ -127,6 +127,22 @@ Output is guidance: an altitude assessment, the in-scope expansion set, a teleme
 ### 4.5 Threat Hunting Service Redevelopment
 The umbrella the items above sit under. I took Precursor's threat hunting service from a bespoke, one-environment-at-a-time engagement model and rebuilt it as a one-to-many delivery model that scales across the full client base. Prioritisation decides what to hunt, the pipeline produces it once, the altitude method makes each hunt earn its keep, and the maturity framework governs what graduates into a permanent detection.
 
+### 4.6 Redesigned Monthly Customer Reporting Process
+Previously the monthly report was a powerpoint slide deck with a few screenshots and a paragraph of text. I rebuilt it as a structured, repeatable process that produces a consistent report for every client. each report pack includes:
+
+**High-level thematic slide deck for executive reporting**
+**Technical deep-dive for internal security to review and provide feedback on during the monthly call**
+**Data health report for insight in to log ingestion and costing per month**
+**Detailed threat hunt reports for each hunt delivered that month**
+
+The process is repeatable and scalable, and the output is consistent across the client base.
+
+### 4.7 Claude and Caldera MCP development (Claudera)
+Supported an apprentice in building a proof-of-concept integration between the Caldera MITRE Cyber Analytics Platform and the Claude API, so that Caldera could generate its own threat hunting content. The project was a success and the apprentice was able to demonstrate a working prototype. We are now able to generate structured threat emulation using AI prompts, which can be used to test and validate our detection content.
+
+### 4.8 Co-development of an L1 Triage AI Agent
+Worked with a member of the L1 team to build a proof-of-concept AI agent that can triage alerts and provide initial investigation guidance. The agent uses the Claude API to analyze alert data and break down the alert in to a more human-readable, enriched descritpion, helping to reduce the workload on human analysts and improve response times. This also looks up customer information to make each alert more contextually relevant to the customer.
+
 ## 5. Cloud Detection Engineering at Scale
 Currently the largest body of production detection work.
 
@@ -204,9 +220,13 @@ Priorities: developing specialist capability within the team, including digital 
 - **Root causes over per-rule workarounds.** If the same fix is being applied in twenty rules, the problem is upstream.
 
 ## 12. Certifications
-CompTIA A+, CompTIA Linux+, ISC2 Certified in Cybersecurity, ITIL v4 Foundation.
+Foundation degree in Security Systems and Technologies, Systems Security Certified Practitioner (SSCP), Azure Fundamentals (AZ-900)
 
-## 13. Likely Visitor Questions
+## 13. Contributions to the Community
+- **Public threat hunt library** (SentinelHunt) for analysts from non-IT backgrounds.
+- **Detection content** Published detection content for Google Cloud audit telemetry, Microsoft Sentinel, and Defender for Endpoint. sitelink: https://detections.ai/profile/Scocha
+
+## 14. Likely Visitor Questions
 Suggested handling. Adapt the wording, keep the substance.
 
 **"What does he actually do day to day?"** Leads a SOC team at an MSSP: detection engineering, threat hunting, investigation of escalated incidents, and the design of the processes and automation the team runs on. Increasingly the latter.
