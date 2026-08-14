@@ -38,7 +38,6 @@ export default function SmokeBackground() {
     >
       <div className="smoke-layer smoke-layer-1" />
       <div className="smoke-layer smoke-layer-2" />
-      <div className="smoke-layer smoke-layer-3" />
     </div>
   )
 }
