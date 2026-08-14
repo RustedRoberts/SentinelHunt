@@ -43,6 +43,8 @@ The columns worth knowing:
 - `AccountUpn`, `AccountObjectId`, and `AccountSid` - identify who asked
 - `DeviceName` and `Application` - tell you where it came from
 
+![IdentityQueryEvents summarized by ActionType, showing DNS query, LDAP query, and SAMR query](/SentinelHunt/blog/identityqueryevents-actiontypes.png)
+
 A starting query looks like this:
 
 ```kql
