@@ -2,7 +2,7 @@ id: HL-022
 title: DNS Queries Bypassing Internal Resolvers
 summary: >
   Finds devices sending DNS queries (port 53) directly to an external IP rather than
-  through an internal resolver — a schema-independent fallback for spotting DNS tunnelling
+  through an internal resolver - a schema-independent fallback for spotting DNS tunnelling
   and DNS-based C2 that does not depend on the (unvalidated, sensor-version-dependent)
   `DnsQueryResponse` field layout used by higher-fidelity subdomain-cardinality detection.
 hypothesis: |
@@ -10,7 +10,7 @@ hypothesis: |
   query an attacker-controlled or open recursive resolver directly, bypassing the
   organisation's configured internal DNS servers entirely. A device sending port 53 traffic
   to an external, non-private IP is either misconfigured, running non-standard software, or
-  circumventing DNS-based security controls (filtering, logging) on purpose — none of which
+  circumventing DNS-based security controls (filtering, logging) on purpose - none of which
   are common in a well-managed estate.
 author: RustedRoberts
 updated: "2026-08-15"
@@ -41,7 +41,7 @@ dataSources:
 whatYoullSee: |
   A short list of external IPs receiving port 53 traffic directly from devices, with query
   counts, device counts, and the initiating processes involved. This fallback query returns
-  little in a well-managed estate where all DNS goes through internal resolvers or DoH —
+  little in a well-managed estate where all DNS goes through internal resolvers or DoH -
   that is expected. It is a coarse signal intended to be a safe default while the
   higher-fidelity subdomain-cardinality query (see curator's notes) remains unvalidated
   against the live `DeviceEvents` schema.
@@ -50,13 +50,13 @@ investigationSteps:
   - "Confirm the destination IP is not a legitimate secondary/public resolver the
     organisation has intentionally configured (e.g. 1.1.1.1, 8.8.8.8) before treating this
     as a candidate."
-  - "Profile the initiating process — DNS tunnelling clients are rarely `svchost.exe` or a
+  - "Profile the initiating process - DNS tunnelling clients are rarely `svchost.exe` or a
     standard resolver stub; an unfamiliar or unsigned binary querying port 53 directly is a
     much stronger signal than the port usage alone."
   - "If the process and volume look interesting, pivot to the parent-domain / subdomain
     query in the curator's notes manually against a live schema check rather than relying on
     it as a scheduled hunt until validated."
-  - "Attribute the destination IP via WHOIS/TI — open recursive resolvers used
+  - "Attribute the destination IP via WHOIS/TI - open recursive resolvers used
     legitimately by security tooling (e.g. passive DNS collectors) are a known false
     positive class here."
 
@@ -70,9 +70,9 @@ falsePositives:
 
 curatorNotes: |
   **This is the validated fallback, not the primary detection.** The higher-fidelity
-  approach — flagging parent domains with abnormally high subdomain cardinality and long
+  approach - flagging parent domains with abnormally high subdomain cardinality and long
   average subdomain length, which is what actually distinguishes tunnelling from ordinary
-  DNS chatter — depends on the `AdditionalFields` key names for `DnsQueryResponse` in
+  DNS chatter - depends on the `AdditionalFields` key names for `DnsQueryResponse` in
   `DeviceEvents`. Those key names have changed across sensor versions and were **not
   confirmed against a live schema** when this pack was built. Do not schedule the query
   below until you have validated `DnsQueryString` (or whatever the current field is named)
@@ -105,7 +105,7 @@ curatorNotes: |
   ```
 
   Once validated, promote that query to be the primary implementation on this hunt and move
-  the port-53 query below to a secondary/fallback role — the reverse of how this file is
+  the port-53 query below to a secondary/fallback role - the reverse of how this file is
   currently structured. Bump `maturity` to `Validated` only after a live-schema confirmation
   run, and re-check current T1219 (Remote Access Tools) sub-technique numbering if that
   mapping ever becomes relevant to a triaged result here, since ATT&CK has restructured it.
@@ -113,7 +113,7 @@ curatorNotes: |
   This detection also touches Defense Evasion, not just Command and Control: DGA-generated
   subdomains map additionally to T1568.002, and encoded payloads carried in subdomain labels
   map to T1132.001 (Standard Encoding), which formally sits under Defense Evasion rather than
-  C2 — worth noting in any coverage-mapping exercise even though this hunt is filed under
+  C2 - worth noting in any coverage-mapping exercise even though this hunt is filed under
   TA0011.
 
 references:

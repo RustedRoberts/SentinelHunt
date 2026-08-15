@@ -17,14 +17,14 @@ hypothesis: |
   advfirewall` command-line utility. Both produce process creation events in Microsoft
   Defender for Endpoint's `DeviceProcessEvents` table, with the full command line captured
   in `ProcessCommandLine`. This telemetry includes the initiating process chain, integrity
-  level, and account context — all of which are valuable for distinguishing legitimate
+  level, and account context - all of which are valuable for distinguishing legitimate
   administrative activity from attacker-driven changes.
 
   Under normal operations, firewall modifications originate from a small set of known
   sources: Group Policy client processes running at SYSTEM integrity, endpoint management
   agents (SCCM, Intune), and legitimate software installers. Any modification initiated by
-  a non-SYSTEM process — particularly one spawned from an interactive user session or an
-  unexpected parent process — warrants investigation.
+  a non-SYSTEM process - particularly one spawned from an interactive user session or an
+  unexpected parent process - warrants investigation.
 
   The query classifies each change as Create, Delete, Disable, or Modify, and aggregates
   by account, device, and initiating process to highlight anomalous volume and rare process
@@ -64,7 +64,7 @@ whatYoullSee: |
   The summarised output groups changes by account, device, and initiating process. A high
   `TotalChanges` count from a single account or device, or an unfamiliar initiating
   process, are the primary triage signals. The `Actions` set shows whether the activity is
-  predominantly creating, deleting, or disabling rules — deletions and disables are higher
+  predominantly creating, deleting, or disabling rules - deletions and disables are higher
   severity. The `SampleCommands` field provides up to five example command lines for quick
   inspection.
 
@@ -94,7 +94,7 @@ falsePositives:
     include firewall rule provisioning, where the deployment agent runs under a named
     admin account rather than SYSTEM.
   - IT administrators manually configuring firewall rules via PowerShell or netsh during
-    legitimate troubleshooting or infrastructure provisioning — particularly common in
+    legitimate troubleshooting or infrastructure provisioning - particularly common in
     environments without centralised firewall policy management.
 
 curatorNotes: |
@@ -108,7 +108,7 @@ curatorNotes: |
   list of known-legitimate initiating processes by SHA256 hash (not filename, to prevent
   exclusion bypass via renamed binaries). The `ProcessIntegrityLevel != "System"` filter
   excludes the majority of GPO-driven and management agent changes, but note that some
-  attacker tools can elevate to SYSTEM integrity — consider periodically reviewing
+  attacker tools can elevate to SYSTEM integrity - consider periodically reviewing
   SYSTEM-level changes as a separate sweep.
 
   The 14-day lookback window should be adjusted to match the organisation's hunt cadence.
@@ -120,7 +120,7 @@ curatorNotes: |
   enterprise environments means the raw signal-to-noise ratio requires analyst judgement.
 
 references:
-  - label: "MITRE ATT&CK: Disable or Modify System Firewall — Windows Host Firewall (T1686.003)"
+  - label: "MITRE ATT&CK: Disable or Modify System Firewall - Windows Host Firewall (T1686.003)"
     url: https://attack.mitre.org/techniques/T1686/003/
   - label: "Atomic Red Team: T1562.004 test cases"
     url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
@@ -131,13 +131,13 @@ implementations:
   - platform: Microsoft Sentinel
     language: KQL
     query: |
-      // ── Behavioural firewall tampering — aggregated hunt
+      // ── Behavioural firewall tampering - aggregated hunt
       // Surfaces non-system processes modifying Windows Firewall config,
       // aggregated by account, device, and initiating process to highlight
       // anomalous volume and rare process lineage.
 
       DeviceProcessEvents
-      | where Timestamp > ago(14d)                                                    // Lookback window — adjust to match hunt cadence
+      | where Timestamp > ago(14d)                                                    // Lookback window - adjust to match hunt cadence
       | where ProcessCommandLine has_any (
           "New-NetFirewallRule", "Set-NetFirewallRule", "Remove-NetFirewallRule",      // PowerShell firewall cmdlets
           "Set-NetFirewallProfile", "Disable-NetFirewallRule", "Enable-NetFirewallRule",

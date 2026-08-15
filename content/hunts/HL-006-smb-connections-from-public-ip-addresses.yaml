@@ -166,7 +166,7 @@ implementations:
       | summarize
           FailedAttemptsByIP = count(),                                                                   // Total failed attempts from this IP
           FailedDevices = make_set(DeviceName, 25),                                                       // Which devices saw failures from this IP
-          FailedPorts = make_set(RemotePort, 25),                                                         // Which ports were tried — useful for spotting scanning
+          FailedPorts = make_set(RemotePort, 25),                                                         // Which ports were tried - useful for spotting scanning
           FailedTimeRange = strcat(format_datetime(min(Timestamp), "yyyy-MM-dd HH:mm"), " to ", format_datetime(max(Timestamp), "yyyy-MM-dd HH:mm"))  // First to last failure
           by RemoteIP;                                                                                    // Grouped by source IP regardless of target
       // 4. Failed SMB connections from any public IP against the same devices that had a successful SMB connection
@@ -177,7 +177,7 @@ implementations:
       | where DeviceName in ((SuccessfulSMB | distinct DeviceName))                                       // Only devices that had a successful SMB connection
       | summarize
           FailedSMBAttempts = count(),                                                                    // Total failed SMB attempts against this device
-          FailedSMBSourceIPs = make_set(RemoteIP, 25),                                                    // Which public IPs failed — may differ from the successful one
+          FailedSMBSourceIPs = make_set(RemoteIP, 25),                                                    // Which public IPs failed - may differ from the successful one
           FailedSMBTimeRange = strcat(format_datetime(min(Timestamp), "yyyy-MM-dd HH:mm"), " to ", format_datetime(max(Timestamp), "yyyy-MM-dd HH:mm"))  // First to last failure
           by DeviceName;                                                                                  // Grouped by target device regardless of source
       // Bring it all together

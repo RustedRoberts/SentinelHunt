@@ -37,30 +37,30 @@ dataSources:
 whatYoullSee: |
   Device/process/IP triples with at least 4 distinct active hours of external connections
   and no matching device-local DNS resolution for that IP anywhere in the lookback window.
-  Expect a substantial share of results to be legitimate — see the false positive class
+  Expect a substantial share of results to be legitimate - see the false positive class
   below, which is confirmed common enough in testing to be the primary tuning lever for
   this hunt.
 
   Apply the non-standard-port variant (add `| where Ports !has_any (80, 443)`) to shrink the
-  result set to something closer to genuinely suspicious direct-to-IP behaviour — it maps
+  result set to something closer to genuinely suspicious direct-to-IP behaviour - it maps
   cleanly to T1571 and was materially shorter in testing than the unfiltered query.
 
 investigationSteps:
   - "Before triaging, check whether the initiating process is a JVM, Go, or Python-based
-    agent — these open sockets directly and never populate `RemoteUrl` regardless of
+    agent - these open sockets directly and never populate `RemoteUrl` regardless of
     whether DNS resolution actually occurred. Expect CI servers, Java application servers,
     and container tooling here; this is the dominant false-positive class for this hunt."
   - "Pull `InitiatingProcessCommandLine` and `InitiatingProcessFolderPath` for the
-    device/process pair — the command line is usually decisive for identifying build
+    device/process pair - the command line is usually decisive for identifying build
     agents, deployment tooling, and package managers polling upstream repositories."
   - "Check for a single consistent binary path and SHA1 across every destination for that
-    process — this is a stronger 'clean' signal for the JVM/Go/Python false-positive class
+    process - this is a stronger 'clean' signal for the JVM/Go/Python false-positive class
     than the absence of DNS resolution is a 'suspicious' signal on its own."
   - "Attribute the IP via WHOIS/TI, resolving the hostname first if any sibling process on
-    the same IP does perform DNS resolution elsewhere in the tenant — shared CDN and
+    the same IP does perform DNS resolution elsewhere in the tenant - shared CDN and
     anycast addresses carry the reputation of every tenant behind them."
   - "Where the destination is confirmed and legitimate but the connecting process is unusual
-    for that host's role, treat that mismatch — not the missing DNS resolution — as the
+    for that host's role, treat that mismatch - not the missing DNS resolution - as the
     finding."
 
 falsePositives:
@@ -68,23 +68,23 @@ falsePositives:
     name resolution path, so `RemoteUrl` is never populated for them regardless of whether
     a DNS lookup occurred anywhere in the process. This produces CI servers, Java
     application servers, and container tooling in the output as a matter of course.
-  - Continuous integration servers polling version control over HTTPS or SSH — high volume,
+  - Continuous integration servers polling version control over HTTPS or SSH - high volume,
     single stable binary path and hash, direct-to-IP by design of the underlying HTTP
     client library.
   - Any internally-resolved destination whose DNS lookup happened on a different device
     than the one connecting (split-horizon resolvers, connection pooling proxies, forwarders)
-    — this hunt only checks for resolution on the *same* device.
+    - this hunt only checks for resolution on the *same* device.
 
 curatorNotes: |
   **Flagged as unmapped in the source pack, deliberately.** Direct-to-IP callback has no
   precise Enterprise ATT&CK technique of its own. T1071 (Application Layer Protocol) is too
   generic to be a meaningful mapping here and would dilute coverage reporting if applied
-  uniformly. The non-standard-port variant maps cleanly to T1571 (Non-Standard Port) — prefer
+  uniformly. The non-standard-port variant maps cleanly to T1571 (Non-Standard Port) - prefer
   that mapping wherever the variant applies.
 
   This hunt shares the IP-normalisation and non-routable exclusion logic used by [[HL-017]].
   The `resolved` reference set is built from *any* device in the tenant with a non-empty
-  `RemoteUrl` for that IP — if you need same-device-only resolution semantics (stricter,
+  `RemoteUrl` for that IP - if you need same-device-only resolution semantics (stricter,
   fewer false negatives from split-horizon DNS) rather than tenant-wide, change the `by`
   clause in the `resolved` let-statement to include `DeviceId`.
 
@@ -92,7 +92,7 @@ curatorNotes: |
   run: the single largest external contributor to raw connection volume in that estate never
   appeared in destination-hostname enrichment at all, because its initiating process opened
   sockets directly. Command-line profiling identified it immediately as a CI server with
-  multiple build agents polling version control — a single binary path and hash across every
+  multiple build agents polling version control - a single binary path and hash across every
   destination is what actually cleared it, not the absence of DNS resolution.
 
 references:

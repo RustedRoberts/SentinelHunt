@@ -19,7 +19,7 @@ hypothesis: |
   allowing reliable extraction and matching against a known high-risk port list.
 
   The combination of direction (`Inbound` / `dir=in`) and action (`Allow` / `action=allow`)
-  is the critical filter — this isolates rules that permit inbound traffic rather than
+  is the critical filter - this isolates rules that permit inbound traffic rather than
   blocking it or controlling outbound flows. While the host firewall rule alone does not
   guarantee external reachability (upstream network controls such as perimeter firewalls
   and NSGs may still block the traffic), the creation of such a rule reveals attacker
@@ -72,7 +72,7 @@ whatYoullSee: |
 
 investigationSteps:
   - "Verify the initiating process: is `InitiatingProcessFileName` a known-legitimate
-    installer or management agent? Check the `InitiatingProcessFolderPath` — binaries
+    installer or management agent? Check the `InitiatingProcessFolderPath` - binaries
     in temporary directories, user profile paths, or world-writable locations are
     suspicious."
   - "Submit the process hash: look up `ProcessHash` (SHA256) in your threat intelligence
@@ -108,7 +108,7 @@ curatorNotes: |
   Impairment. Detection logic and scope are unchanged - this is a taxonomy-only update.
 
   Signal is rated High because inbound-allow rules for remote-access ports are a
-  high-fidelity indicator of post-exploitation intent — the false positive surface is
+  high-fidelity indicator of post-exploitation intent - the false positive surface is
   narrow compared to the broad firewall tampering hunt in HL-006. The primary tuning
   requirement is excluding known-legitimate remote support tool installers by SHA256 hash.
 
@@ -117,7 +117,7 @@ curatorNotes: |
   (5938), or custom C2 ports observed in prior incidents. Add these to both the
   `RemoteAccessPorts` dynamic array and the `ServiceName` case statement.
 
-  This hunt detects rule creation only — it does not detect whether the port is actually
+  This hunt detects rule creation only - it does not detect whether the port is actually
   reachable from external networks. For complete coverage, pair this with HL-004 (SMB
   Connections from Public IPs) or a network-level scan of externally exposed services.
 
@@ -126,7 +126,7 @@ curatorNotes: |
   that produce different command-line formats, the regex may need extending.
 
 references:
-  - label: "MITRE ATT&CK: Disable or Modify System Firewall — Windows Host Firewall (T1686.003)"
+  - label: "MITRE ATT&CK: Disable or Modify System Firewall - Windows Host Firewall (T1686.003)"
     url: https://attack.mitre.org/techniques/T1686/003/
   - label: "Atomic Red Team: T1562.004 test cases"
     url: https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1562.004/T1562.004.md
@@ -143,9 +143,9 @@ implementations:
 
       let RemoteAccessPorts = dynamic(["3389", "22", "5900", "5901", "5985", "5986", "445", "4899", "23"]);
       DeviceProcessEvents
-      | where Timestamp > ago(14d)                                                    // Lookback window — adjust to match hunt cadence
+      | where Timestamp > ago(14d)                                                    // Lookback window - adjust to match hunt cadence
       | where ProcessCommandLine has_any (
-          "New-NetFirewallRule", "netsh advfirewall firewall add rule"                 // Only rule creation — not modify/delete
+          "New-NetFirewallRule", "netsh advfirewall firewall add rule"                 // Only rule creation - not modify/delete
       )
       | where ProcessIntegrityLevel != "System"                                       // Exclude GPO / endpoint management
       | where ProcessCommandLine has_any ("Inbound", "dir=in")                        // Must be an inbound rule

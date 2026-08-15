@@ -10,7 +10,7 @@ hypothesis: |
   An implant maintaining a command and control channel contacts its controller on a
   schedule. Even with jitter applied, a fast beacon (short sleep interval) produces a
   near-constant number of connections per hour to a single destination, sustained over
-  days — a flatter, more uniform hourly volume than human-driven or naturally bursty
+  days - a flatter, more uniform hourly volume than human-driven or naturally bursty
   traffic.
 
   Legitimate software produces the same signature, so uniformity alone is not treated as
@@ -45,11 +45,11 @@ whatYoullSee: |
   A short list of (device, process, external IP) relationships with a low coefficient of
   variation across hourly connection counts, sustained for at least `min_active_hours` out
   of the lookback window, and contacted by no more than `max_prevalence` of devices in the
-  tenant. Results are dominated by always-on servers rather than workstations — see the
+  tenant. Results are dominated by always-on servers rather than workstations - see the
   curator's notes on `ActiveRatio` bias before concluding a quiet result set means no
   beaconing.
 
-  Before trusting any result — including a null result — confirm aggregated reporting is
+  Before trusting any result - including a null result - confirm aggregated reporting is
   actually enabled for the tenant. It is an opt-in feature under **Settings > Endpoints >
   Advanced features**, can take up to seven days to populate after enabling, and a tenant
   with it disabled returns zero rows, which is indistinguishable from a tenant with no
@@ -71,7 +71,7 @@ investigationSteps:
   - "Resolve the destination IP to a hostname via `RemoteUrl` on raw `ConnectionSuccess`
     events for the same IP over the lookback window. If nothing resolves, the initiating
     process is very likely opening sockets directly rather than through Windows name
-    resolution — move to process profiling rather than concluding the destination is
+    resolution - move to process profiling rather than concluding the destination is
     unresolved."
   - "Profile the process on the host: pull `RemoteUrl`, `RemotePort`,
     `InitiatingProcessFolderPath`, `InitiatingProcessSHA1` and
@@ -83,28 +83,28 @@ investigationSteps:
   - "Attribute the destination via WHOIS or a threat intelligence platform, but resolve the
     hostname first. Reputation scores on shared CDN/anycast edge addresses (Cloudflare,
     Akamai, Fastly, CloudFront) reflect the worst tenant sharing that address, not this
-    traffic — an adverse score on resolved-to-mainstream-SaaS infrastructure is a false
+    traffic - an adverse score on resolved-to-mainstream-SaaS infrastructure is a false
     lead, not a finding."
   - "For confirmed vendor infrastructure, the remaining question is whether the software is
     authorised, not whether the beacon shape is suspicious. RMM and monitoring agents
     produce textbook beacon signatures by design and unsanctioned RMM is an established C2
-    vector (T1219) — confirm with the asset owner before disposal."
+    vector (T1219) - confirm with the asset owner before disposal."
 
 falsePositives:
-  - Windows Delivery Optimization peer-to-peer traffic (`svchost.exe` on port 7680) — LAN
+  - Windows Delivery Optimization peer-to-peer traffic (`svchost.exe` on port 7680) - LAN
     traffic that should be removed entirely by correct external-IP filtering; a large share
     of unfiltered results in testing traced back to this alone.
   - Backup agents, mail server health monitoring, virtualisation management, distributed
-    file replication and domain controller replication — internal machine-to-machine
+    file replication and domain controller replication - internal machine-to-machine
     traffic that is uniform by design and should also disappear once external filtering is
     correct.
   - Endpoint management SaaS agents, cloud analytics gateways, privileged access management
-    engines, and hybrid database agents — all produce textbook uniform beacon signatures
+    engines, and hybrid database agents - all produce textbook uniform beacon signatures
     and are the dominant class of externally-surfaced true negatives.
-  - CI/CD runners and build servers polling source control over HTTPS or SSH — high,
+  - CI/CD runners and build servers polling source control over HTTPS or SSH - high,
     uniform connection volume from a process that opens sockets directly, so it will not
     appear in hostname-resolution enrichment.
-  - Developer tooling that routes through a CDN (e.g. Git credential helpers) — resolves to
+  - Developer tooling that routes through a CDN (e.g. Git credential helpers) - resolves to
     shared edge infrastructure and can carry adverse third-party reputation for unrelated
     tenants on the same address.
 
@@ -129,11 +129,11 @@ curatorNotes: |
     Normalise with `iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)`
     before filtering. In one tuning run, 118 of 288 unfiltered result rows were mapped
     private addresses that survived a filter intended to remove them.
-  - `RemoteIPType` was blank across the entire aggregated report stream in testing — do not
+  - `RemoteIPType` was blank across the entire aggregated report stream in testing - do not
     depend on it for IP classification.
 
   **Coverage gap by construction:** aggregation exists to compress high-volume telemetry.
-  Combined with the `min_avg_conns` volume floor, this is a fast-beacon hunt — a beacon
+  Combined with the `min_avg_conns` volume floor, this is a fast-beacon hunt - a beacon
   generating roughly one connection per hour is unlikely to produce an aggregated record at
   all. Long-sleep, heavily-jittered beacons (the default in most commercial C2 frameworks)
   are only visible to [[HL-018]].
@@ -146,16 +146,16 @@ curatorNotes: |
   `min_active_ratio` to around 0.20, or compute the ratio against hours during which the
   device reported any telemetry at all (more correct, more expensive).
 
-  **Tuning parameters:** `lookback` (7d default — 3d workable, 24h too short for the
-  coefficient of variation to mean anything), `min_active_hours` (12 default — below 8 the
-  statistic becomes meaningless), `min_avg_conns` (20 default — the primary volume gate;
-  below 10 results grow sharply), `max_cv` (0.20 default — only discriminating once external
-  filtering is applied), `max_prevalence` (0.05 default — the single most effective false
+  **Tuning parameters:** `lookback` (7d default - 3d workable, 24h too short for the
+  coefficient of variation to mean anything), `min_active_hours` (12 default - below 8 the
+  statistic becomes meaningless), `min_avg_conns` (20 default - the primary volume gate;
+  below 10 results grow sharply), `max_cv` (0.20 default - only discriminating once external
+  filtering is applied), `max_prevalence` (0.05 default - the single most effective false
   positive control).
 
   Allowlist on process plus resolved destination, not destination alone, so a known-good
   process reaching an unexpected destination still surfaces. Vendors that rotate addresses
-  within a known allocation should be allowlisted by CIDR instead of exact IP — edge
+  within a known allocation should be allowlisted by CIDR instead of exact IP - edge
   addresses for the same service can change within weeks. Record the verification date and
   attribution source with each entry, and expire entries that haven't been re-verified.
 

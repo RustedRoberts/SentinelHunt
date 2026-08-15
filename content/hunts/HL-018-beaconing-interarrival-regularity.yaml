@@ -42,7 +42,7 @@ whatYoullSee: |
   sparse compared to [[HL-017]] because raw `ConnectionSuccess` events are throttled far
   more aggressively than aggregated reports.
 
-  Treat a high jitter ratio as inconclusive, not exculpatory — see the reliability caveat
+  Treat a high jitter ratio as inconclusive, not exculpatory - see the reliability caveat
   in the curator's notes before drawing conclusions from this hunt in isolation.
 
 investigationSteps:
@@ -51,21 +51,21 @@ investigationSteps:
     Results in the unreliable band should be corroborated with [[HL-017]] or discarded
     rather than triaged directly."
   - "Resolve the destination IP to a hostname via `RemoteUrl` on the same events. Absence of
-    a resolution suggests the process is opening sockets directly — move to command-line
+    a resolution suggests the process is opening sockets directly - move to command-line
     profiling."
   - "Pull `InitiatingProcessFolderPath`, `InitiatingProcessSHA1` and
     `InitiatingProcessCommandLine` for the device/process pair. A single hash and path
     across all destinations, with a command line that plausibly explains fixed-interval
     polling (license checks, update checks, health checks), clears most results quickly."
   - "Attribute the destination via WHOIS/TI, resolving the hostname before trusting IP
-    reputation — shared CDN and anycast addresses carry the reputation of every tenant
+    reputation - shared CDN and anycast addresses carry the reputation of every tenant
     behind them."
   - "For confirmed vendor software with fixed-interval polling, confirm authorisation before
     disposal rather than treating the regularity itself as the finding."
 
 falsePositives:
   - Licensing, update-check, and heartbeat/health-check clients with a fixed polling
-    interval and little or no jitter — mechanically indistinguishable from a beacon by
+    interval and little or no jitter - mechanically indistinguishable from a beacon by
     timing alone.
   - Any relationship in the unreliable sampling band (see curator's notes) where the
     measured "interval" is actually a reporting artefact of sensor throttling rather than
@@ -78,20 +78,20 @@ curatorNotes: |
   testing. At that sampling rate the intervals this hunt measures are reporting artefacts,
   not beacon timing.
 
-  This hunt is therefore only reliable below roughly a few hundred connections per hour —
+  This hunt is therefore only reliable below roughly a few hundred connections per hour -
   which is exactly the range [[HL-017]] cannot reach, because that volume rarely triggers
   an aggregated record. Treat the two hunts as complementary with an unreliable band in the
   middle, not as interchangeable. Never present a raw `ConnectionSuccess` count to an
   analyst as though it were a true connection volume.
 
-  **Tuning parameters:** `lookback` (7d), `min_connections` (15 — floor for the standard
+  **Tuning parameters:** `lookback` (7d), `min_connections` (15 - floor for the standard
   deviation to be meaningful), `max_jitter_ratio` (0.25 default). The
   `MeanInterval between (30.0 .. 86400.0)` bound excludes sub-30-second bursts (likely
   retries/keep-alives rather than distinct beacon events) and intervals longer than a day
   (too few samples in a 7 day window to say anything about regularity).
 
   This hunt reuses the same IP-normalisation and non-routable exclusion logic as [[HL-017]]
-  — see that hunt's curator's notes for the IPv4-mapped IPv6 and `ipv4_is_private()` pitfalls
+  - see that hunt's curator's notes for the IPv4-mapped IPv6 and `ipv4_is_private()` pitfalls
   it avoids.
 
 references:

@@ -39,12 +39,12 @@ whatYoullSee: |
   Device/process/destination triples with at least 50 total failed connection attempts
   (`ConnectionFailedAggregatedReport`) spread across at least 6 distinct hours in the
   lookback window, sorted by active-hour span and total failure count. Unlike [[HL-017]],
-  this hunt does not require aggregated reporting coverage checks to be skipped — the same
+  this hunt does not require aggregated reporting coverage checks to be skipped - the same
   coverage caveat applies: a tenant without aggregated reporting enabled returns zero rows
   indistinguishable from a tenant with no failures.
 
 investigationSteps:
-  - "Confirm the destination is genuinely unreachable, not merely slow or rate-limited —
+  - "Confirm the destination is genuinely unreachable, not merely slow or rate-limited -
     check `ConnectionSuccessAggregatedReport` for the same IP over a wider window before
     concluding it is dead infrastructure."
   - "Resolve the IP to a hostname via `RemoteUrl` where available. An IP with no successful
@@ -54,7 +54,7 @@ investigationSteps:
   - "Profile the initiating process: folder path, SHA1, and command line. Persistent retry
     behaviour with no user-facing error and no corresponding UI process is more suggestive
     of an implant than of ordinary software."
-  - "Check whether the failures are to a non-standard port — this also supports T1571
+  - "Check whether the failures are to a non-standard port - this also supports T1571
     (Non-Standard Port) and narrows the search meaningfully when combined with process
     rarity."
   - "Attribute the IP via WHOIS/TI. A destination with no ownership history, recently
@@ -74,18 +74,18 @@ falsePositives:
 
 curatorNotes: |
   This hunt shares the same telemetry source and IP-normalisation requirements as [[HL-017]]
-  — the aggregated-reporting coverage check, the IPv4-mapped IPv6 normalisation, and the
+  - the aggregated-reporting coverage check, the IPv4-mapped IPv6 normalisation, and the
   `RemoteIPType` unreliability documented there all apply here unchanged.
 
   Unlike the volume-uniformity and interval-regularity hunts, this one does not measure
-  timing regularity at all — it is a pure persistence signal. That makes it comparatively
+  timing regularity at all - it is a pure persistence signal. That makes it comparatively
   cheap to run and a reasonable first pass before the more statistically involved hunts,
   since a dead C2 channel is often the easiest of the group to confirm: there is no
   legitimate-traffic baseline to separate it from, only "is this destination supposed to be
   reachable."
 
   **Tuning parameters:** `ActiveHours >= 6` and `TotalFailures >= 50` are deliberately loose
-  floors intended to catch low-and-slow retry behaviour as well as fast retry loops — tune
+  floors intended to catch low-and-slow retry behaviour as well as fast retry loops - tune
   down `TotalFailures` first if the result set is empty in a smaller estate, since the floor
   was set against a materially larger fleet than most single-tenant deployments.
 

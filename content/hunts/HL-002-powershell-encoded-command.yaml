@@ -13,7 +13,7 @@ hypothesis: |
 
   By identifying processes spawning `powershell.exe` with the `-Enc` or `-EncodedCommand`
   flags, we can surface potentially obfuscated execution chains for analyst review. The parent
-  process context is critical — `powershell.exe` spawned from `Office` applications or
+  process context is critical - `powershell.exe` spawned from `Office` applications or
   `wscript.exe`/`cscript.exe` carries significantly higher risk than those from `cmd.exe`
   in a development context.
 author: RustedRoberts
@@ -50,7 +50,7 @@ whatYoullSee: |
   short form `-enc`. The base64 payload will appear immediately after the flag. High-risk
   results will show a parent process from the Office suite (`winword.exe`, `excel.exe`,
   `outlook.exe`), script hosts (`wscript.exe`, `cscript.exe`, `mshta.exe`), or browser
-  processes — these chains strongly suggest a dropper or phishing-delivered payload.
+  processes - these chains strongly suggest a dropper or phishing-delivered payload.
 
 investigationSteps:
   - "Decode the base64 payload: copy the string after `-EncodedCommand`, decode it from
@@ -113,11 +113,11 @@ implementations:
       // Classify parent process risk
       | extend ParentRisk = case(
           InitiatingProcessFileName in~ ("winword.exe","excel.exe","outlook.exe","powerpnt.exe"),
-            "High — Office parent",
+            "High - Office parent",
           InitiatingProcessFileName in~ ("wscript.exe","cscript.exe","mshta.exe"),
-            "High — Script host parent",
+            "High - Script host parent",
           InitiatingProcessFileName in~ ("explorer.exe"),
-            "Medium — Interactive",
+            "Medium - Interactive",
           "Low"
         )
       | project

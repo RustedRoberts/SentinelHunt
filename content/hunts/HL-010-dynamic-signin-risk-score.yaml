@@ -17,17 +17,17 @@ hypothesis: |
   reproduces the legitimate owner's full behavioural envelope at once. They
   typically authenticate from an unfamiliar country, on a never-before-seen
   device, outside the user's usual working hours, from an untrusted network
-  — but each of these in isolation also occurs benignly (travel, a new
+  - but each of these in isolation also occurs benignly (travel, a new
   laptop, late working, tethered hotspot).
 
   No single signal is reliable, but their *coincidence within one session*,
   weighted and summed, separates compromise from noise. This hunt builds a
-  per-user baseline over a 30-day lookback from `SigninLogs` — the set of
+  per-user baseline over a 30-day lookback from `SigninLogs` - the set of
   countries and device IDs the user has demonstrably used, plus the
-  named/trusted networks — then scores each new successful sign-in against
+  named/trusted networks - then scores each new successful sign-in against
   that baseline. Time-of-day is scored separately against a fixed working
   window in UK local time rather than a per-user hour baseline (a
-  deliberate simplification — see curatorNotes). Entra-native fields
+  deliberate simplification - see curatorNotes). Entra-native fields
   (`riskLevelDuringSignIn`, `riskState`, `riskEventTypes`) are carried
   alongside the locally computed score for corroboration rather than as
   the primary signal, since the
@@ -90,7 +90,7 @@ whatYoullSee: |
   - The sign-in falls outside the fixed working window (07:00–19:00 UK
     local time by default) (+15).
   - The target application (`AppDisplayName` / `ResourceDisplayName`) is on
-    the sensitive-app watchlist — Azure portal, Graph, admin consoles (+15).
+    the sensitive-app watchlist - Azure portal, Graph, admin consoles (+15).
   - The network is not an Entra trusted/named location
     (`NetworkLocationDetails` lacks `trustedNamedLocation`) (+10).
   - Entra's own `riskLevelDuringSignIn` is medium/high, corroborating the
@@ -109,7 +109,7 @@ whatYoullSee: |
 investigationSteps:
   - "Read the score breakdown, not the total: `ScoreReasons` is a dynamic
     array of the factors that fired (e.g. `[\"New-Country(+30)\",
-    \"Unseen-Device(+25)\"]`). Inspect array length and contents — a score
+    \"Unseen-Device(+25)\"]`). Inspect array length and contents - a score
     driven by a single element (e.g. only `New-Country`) is usually benign
     travel and can be deprioritised; a score spread across location +
     device + hour + sensitive-app is high-fidelity. The array can be
@@ -122,7 +122,7 @@ investigationSteps:
     decisive)."
   - "Inspect the device: note `DeviceDetail.deviceId`, `displayName`,
     `operatingSystem`, `isCompliant`, `isManaged`. A null deviceId on a
-    web sign-in is common and not alone conclusive — weigh it with the
+    web sign-in is common and not alone conclusive - weigh it with the
     other factors rather than treating absence of data as malicious."
   - "Check the conditional access and MFA outcome: did the session satisfy
     MFA (`AuthenticationRequirement`, `ConditionalAccessStatus`)? A
@@ -130,11 +130,11 @@ investigationSteps:
     serious than one that fully satisfied a strong CA policy."
   - "Pivot to post-authentication activity: if the target app is sensitive,
     query `AuditLogs` and `CloudAppEvents` for actions by this user in the
-    30 minutes following the sign-in — role assignments, app consents,
+    30 minutes following the sign-in - role assignments, app consents,
     mailbox rule creation, or token issuance indicate the access was used,
     not merely established."
   - "Correlate with prior failed sign-ins: look for `ResultType != 0`
-    events for the same user from the same IP/ASN in the preceding hours —
+    events for the same user from the same IP/ASN in the preceding hours -
     a burst of failures followed by the scored success indicates brute
     force or password spray (T1110) preceding the valid-account abuse."
   - "If confirmed, treat as credential compromise: revoke sessions, force
@@ -142,14 +142,14 @@ investigationSteps:
     could reach during the exposure window."
 
 falsePositives:
-  - "Genuine business travel — a user legitimately working from a new
+  - "Genuine business travel - a user legitimately working from a new
     country on their normal corporate device during reasonable local hours.
     The graded device factor and clustering requirement are designed to
     keep these in the Low/Medium band."
   - "Hardware refresh or first sign-in from a newly issued corporate device,
     which produces an unseen `deviceId` until the baseline catches up."
   - "Shift workers, on-call staff, and night-shift roles whose legitimate
-    sign-ins routinely fall outside the 07:00–19:00 UK-local window — this
+    sign-ins routinely fall outside the 07:00–19:00 UK-local window - this
     factor will fire on every such sign-in. Suppress or zero-weight the
     time factor for known 24x7 roles, or widen the window per population."
   - "Users genuinely working in distant timezones: the window is evaluated
@@ -160,7 +160,7 @@ falsePositives:
     an off-shore user tripping only `Off-Hours(+15)` is precisely the
     single-factor case investigation step 1 deprioritises via the
     `ScoreReasons` breakdown. Do NOT zero-weight or suppress the time
-    factor to silence this on a primarily-UK estate — doing so discards
+    factor to silence this on a primarily-UK estate - doing so discards
     signal that is wanted for the in-scope population. Suppression is only
     appropriate for a materially non-UK or 24x7 estate (see curatorNotes)."
   - "VPN, tethering, or ISP CGNAT causing the source to fall outside trusted
@@ -213,30 +213,30 @@ curatorNotes: |
     rather than hidden: (a) it is correct year-round because the query
     converts UTC to Europe/London (BST/GMT handled), not raw UTC; (b) it
     is structurally wrong for users whose legitimate working hours sit
-    outside UK daytime — night-shift, on-call, and genuinely
+    outside UK daytime - night-shift, on-call, and genuinely
     distant-timezone users will accrue a constant +15. For materially
     non-UK or 24x7 populations the correct action is to zero the time
     factor's weight or suppress it per population, NOT to widen the window
     so far it becomes meaningless. An honest alternative for heavily
     global estates is to drop this factor entirely and rebalance the
-    remaining weights — left as a tuning decision for the implementer.
+    remaining weights - left as a tuning decision for the implementer.
     OPERATING ASSUMPTION FOR THIS HUNT: the intended audience is
     UK-based. Off-shore / off-hours sign-ins flagged by this factor are
     treated as EXPECTED output triaged by analyst knowledge at runtime
     (via the per-factor `ScoreReasons` array), not as a defect to remove.
     The suppression guidance above applies ONLY when re-deploying this
-    hunt against a materially non-UK or 24x7 estate — on the intended
+    hunt against a materially non-UK or 24x7 estate - on the intended
     UK-centric estate the factor is left live by design and the residual
     false positives are an accepted, human-handled cost.
   - "User behaviour: what is the user attempting to access" from the
     original concept is deliberately reduced to *target application
     sensitivity* only. True intent analysis requires post-auth telemetry
     (AuditLogs / CloudAppEvents) and belongs in a correlated follow-on
-    hunt — see relatedHunts. Scoring "intent" from SigninLogs alone would
+    hunt - see relatedHunts. Scoring "intent" from SigninLogs alone would
     produce an unreliable number.
   - Entra-native risk is corroboration only (+15), never the primary
     driver. If Identity Protection is not licensed/enabled in the tenant
-    that factor silently contributes 0 — acceptable degradation, but note
+    that factor silently contributes 0 - acceptable degradation, but note
     it so a missing P2 licence is not mistaken for low risk.
 
   Suggested promotion criteria: ROC/precision measured against a labelled
@@ -247,11 +247,11 @@ curatorNotes: |
 # References
 # ---------------------------------------------------------------------------
 references:
-  - label: "MITRE ATT&CK: Valid Accounts — Cloud Accounts (T1078.004)"
+  - label: "MITRE ATT&CK: Valid Accounts - Cloud Accounts (T1078.004)"
     url: https://attack.mitre.org/techniques/T1078/004/
   - label: "MITRE ATT&CK: Valid Accounts (T1078)"
     url: https://attack.mitre.org/techniques/T1078/
-  - label: "MITRE ATT&CK: Brute Force (T1110) — common precursor"
+  - label: "MITRE ATT&CK: Brute Force (T1110) - common precursor"
     url: https://attack.mitre.org/techniques/T1110/
   - label: "Microsoft Learn: SigninLogs schema (Azure Monitor reference)"
     url: https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/signinlogs
@@ -315,7 +315,7 @@ implementations:
       // --- 30-day per-user baseline -------------------------------------
       // Computed inline; for tenant scale, materialise this to a summary
       // table refreshed daily and join instead (see curatorNotes).
-      // Note: no hour history is collected — the time factor uses a fixed
+      // Note: no hour history is collected - the time factor uses a fixed
       // working window, not a per-user hour baseline.
       let Baseline =
           SigninLogs
@@ -334,7 +334,7 @@ implementations:
       // Cold-start guard: skip users without enough history to baseline.
       | where isnull(PriorSignins) == false and PriorSignins >= minBaselineCount
       // ---- Factor 1: location familiarity (+30) -----------------------
-      // set_has_element does exact, type-aware element equality — unlike
+      // set_has_element does exact, type-aware element equality - unlike
       // `contains`, which is a substring match and would mismatch
       // (e.g. country "US" substring-matching inside other values).
       | extend f_loc =
@@ -354,7 +354,7 @@ implementations:
       //   UK local time. This is a deliberately simple, legible definition
       //   suitable for a UK-centric estate; it is NOT per-user behavioural.
       //   Distant-timezone users should have this factor down-weighted or
-      //   suppressed — see curatorNotes / falsePositives.
+      //   suppressed - see curatorNotes / falsePositives.
       | extend f_time =
             iff(LocalHour < workStartHour or LocalHour >= workEndHour, 15, 0)
       // ---- Factor 4: target application sensitivity (+15) -------------

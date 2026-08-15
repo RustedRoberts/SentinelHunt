@@ -41,7 +41,7 @@ dataSources:
 whatYoullSee: |
   Source workstations (non-server, non-DC hostnames) establishing successful TCP/3389 connections
   to other workstations. The initiating process will typically be `mstsc.exe`. Look for accounts
-  that do not ordinarily use RDP — standard user accounts performing RDP are unusual in most
+  that do not ordinarily use RDP - standard user accounts performing RDP are unusual in most
   environments. The query aggregates by source host and account to surface repeated attempts.
 
 investigationSteps:
@@ -85,7 +85,7 @@ implementations:
       | where Timestamp > ago(1d)
       | where RemotePort == 3389
       | where ActionType == "ConnectionSuccess"
-      // Exclude known server and DC naming prefixes — tune for your environment
+      // Exclude known server and DC naming prefixes - tune for your environment
       | where DeviceName !startswith "SRV-"
             and DeviceName !startswith "DC-"
             and DeviceName !startswith "JUMP-"

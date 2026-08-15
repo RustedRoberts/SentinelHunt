@@ -2,7 +2,7 @@ id: HL-005
 title: SMB Lateral Movement via High-Volume Port 445 Connections
 summary: >
   Detects devices establishing successful SMB (port 445) connections to an unusually
-  high number of unique remote IPs within a short time window — a behavioural pattern
+  high number of unique remote IPs within a short time window - a behavioural pattern
   consistent with lateral movement, network share enumeration, and ransomware
   pre-deployment reconnaissance.
 hypothesis: |
@@ -72,7 +72,7 @@ investigationSteps:
     immediate investigation."
   - "Examine the accounts used: a single user account or service account initiating SMB
     to many distinct hosts in a short window is a strong indicator. Cross-reference the
-    account against expected behaviour — service accounts especially should have
+    account against expected behaviour - service accounts especially should have
     well-defined access patterns."
   - "Pivot on the destination IPs: resolve the `UniqueIPsAccessed` list against your
     asset inventory. Lateral movement targeting domain controllers, file servers, or
@@ -97,7 +97,7 @@ falsePositives:
     the estate.
 
 curatorNotes: |
-  This hunt is Experimental — the threshold of 5 unique IPs per hour is a starting point
+  This hunt is Experimental - the threshold of 5 unique IPs per hour is a starting point
   and will need tuning against the customer environment. In a flat network with broad
   workstation-to-workstation SMB allowed, the threshold may need to be raised
   significantly; in a segmented environment with strict micro-segmentation, the threshold
@@ -119,7 +119,7 @@ curatorNotes: |
   movement, which uses the `\PIPE\svcctl` and `\PIPE\PSEXESVC` named pipes.
 
 references:
-  - label: "MITRE ATT&CK: Remote Services — SMB/Windows Admin Shares (T1021.002)"
+  - label: "MITRE ATT&CK: Remote Services - SMB/Windows Admin Shares (T1021.002)"
     url: https://attack.mitre.org/techniques/T1021/002/
   - label: "MITRE ATT&CK: Network Share Discovery (T1135)"
     url: https://attack.mitre.org/techniques/T1135/

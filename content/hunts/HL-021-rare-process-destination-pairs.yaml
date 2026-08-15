@@ -10,7 +10,7 @@ hypothesis: |
   usually new to the environment and confined to a small number of compromised hosts.
   Baselining what each process normally talks to, then flagging combinations that are both
   absent from a 21 day trailing baseline and present on no more than 2 devices in the most
-  recent day, surfaces this class of activity independent of connection cadence — including
+  recent day, surfaces this class of activity independent of connection cadence - including
   slow, irregular callbacks that [[HL-017]] and [[HL-018]] cannot detect by timing alone.
 author: RustedRoberts
 updated: "2026-08-15"
@@ -39,34 +39,34 @@ dataSources:
 
 whatYoullSee: |
   Process/destination pairs seen on 1-2 devices in the last day that do not appear anywhere
-  in the preceding 21 days for that tenant. Expect a high volume of legitimate novelty —
+  in the preceding 21 days for that tenant. Expect a high volume of legitimate novelty -
   this hunt is intentionally broad and depends heavily on the living-off-the-land process
   filter (see implementation) or a comparably tight downstream filter to be triageable at
   scale. Without narrowing, this is closer to a rare-event feed than a short candidate list.
 
 investigationSteps:
   - "Apply the living-off-the-land process filter first in any estate where the unfiltered
-    result count is unmanageable — `rundll32.exe`, `regsvr32.exe`, `mshta.exe`,
+    result count is unmanageable - `rundll32.exe`, `regsvr32.exe`, `mshta.exe`,
     `wscript.exe`, `cscript.exe`, `powershell.exe`, `pwsh.exe`, `certutil.exe`, `curl.exe`,
     `bitsadmin.exe`, `msbuild.exe`, `installutil.exe`, `msiexec.exe`, `conhost.exe`. These
     processes both LOLBin-abuse well and rarely have a legitimate reason to be establishing
     brand-new external connections."
   - "Resolve the destination and check `FolderPaths`/`CommandLines` for the initiating
-    process — new-but-explainable (a fresh SaaS integration, a newly-adopted CDN endpoint)
+    process - new-but-explainable (a fresh SaaS integration, a newly-adopted CDN endpoint)
     clears quickly; new-and-unexplained on a LOLBin does not."
   - "Check whether the destination is a SaaS or code-hosting platform. If so, consider
-    T1102.002 (Web Service, Bidirectional Communication) over generic T1071 — the technique
+    T1102.002 (Web Service, Bidirectional Communication) over generic T1071 - the technique
     mapping for this hunt is intentionally decided at triage rather than fixed at
     definition, since it depends on what the destination turns out to be."
   - "Where the result resolves to unsanctioned remote monitoring and management software,
-    consider T1219 (Remote Access Tools) — verify current sub-technique numbering against
+    consider T1219 (Remote Access Tools) - verify current sub-technique numbering against
     the live ATT&CK matrix before recording it, since T1219 has been restructured."
   - "Attribute the destination via WHOIS/TI, resolving the hostname before trusting IP
     reputation for the same shared-CDN reasons as the other hunts in this pack."
 
 falsePositives:
   - Any legitimate software rollout, feature flag, or configuration change that introduces a
-    genuinely new external endpoint for the first time in the baseline window — the
+    genuinely new external endpoint for the first time in the baseline window - the
     baseline-absence signal cannot distinguish "new to this tenant" from "new and
     malicious."
   - One-off administrative or diagnostic tooling run manually by IT staff, which is rare by
@@ -74,21 +74,21 @@ falsePositives:
   - Third-party auto-updaters that rotate CDN endpoints outside the baseline window.
 
 curatorNotes: |
-  This is the broadest and lowest-precision hunt in the pack by design — it trades timing
+  This is the broadest and lowest-precision hunt in the pack by design - it trades timing
   specificity for coverage of slow/irregular C2 that the other hunts structurally cannot
   see. Expect to spend more time tuning the process filter and baseline window than tuning
   any statistical threshold.
 
-  **Tuning parameters:** `baseline_window` (21d — shorter windows increase false "new"
+  **Tuning parameters:** `baseline_window` (21d - shorter windows increase false "new"
   flags from normal periodic-but-infrequent legitimate traffic), `recent_window` (1d),
   `DeviceCount <= 2` (raise cautiously; this is the primary rarity control and loosening it
   quickly turns the hunt into a general novelty feed).
 
-  Reuses the same `external()` IP-normalisation function as [[HL-017]] and [[HL-019]] — see
+  Reuses the same `external()` IP-normalisation function as [[HL-017]] and [[HL-019]] - see
   those hunts' notes for the IPv4-mapped IPv6 and non-routable-range pitfalls it avoids.
 
   Consider running this hunt with the LOLBin filter as the default rather than the optional
-  variant in any estate where analyst time is the binding constraint — the unfiltered
+  variant in any estate where analyst time is the binding constraint - the unfiltered
   version is closer to a research feed than a triage queue.
 
 references:

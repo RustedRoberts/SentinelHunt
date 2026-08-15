@@ -7,7 +7,7 @@ summary: >
   marked as at-risk, providing a prioritised view of privileged access that may indicate
   over-provisioning, stale assignments, or compromised administrative accounts.
 hypothesis: |
-  Microsoft Entra ID directory roles grant powerful permissions across the tenant — from
+  Microsoft Entra ID directory roles grant powerful permissions across the tenant - from
   Global Administrator (full control) down to targeted roles such as Exchange Administrator
   or Authentication Policy Administrator. Adversaries who compromise a privileged account
   gain the ability to modify security policies, create backdoor accounts, extract sensitive
@@ -30,7 +30,7 @@ hypothesis: |
     privileged directory roles represent a significant control gap, as their lifecycle is
     typically managed outside the organisation's standard joiner-mover-leaver processes.
   - **At-risk administrators**: accounts flagged by Entra ID Identity Protection as `AtRisk`
-    that also hold privileged roles demand immediate investigation — a compromised admin
+    that also hold privileged roles demand immediate investigation - a compromised admin
     account is one of the most impactful breach scenarios.
   - **Role assignment concentration**: roles with large numbers of members may indicate
     over-provisioning contrary to least-privilege principles.
@@ -73,22 +73,22 @@ whatYoullSee: |
   is classified as something other than "Unclassified" in the EntraOps framework. Each
   row includes:
 
-  - `RoleName` — the display name of the directory role (e.g. Global Administrator,
+  - `RoleName` - the display name of the directory role (e.g. Global Administrator,
     Privileged Role Administrator).
-  - `RichDescription` — a detailed description of the role's purpose from the Graph API.
-  - `EntraOpsClassification` — the EntraOps tier-level name (e.g. ControlPlane,
+  - `RichDescription` - a detailed description of the role's purpose from the Graph API.
+  - `EntraOpsClassification` - the EntraOps tier-level name (e.g. ControlPlane,
     ManagementPlane), indicating the blast radius of the role.
-  - `isPrivileged` — boolean flag from the EntraOps dataset indicating whether the role
+  - `isPrivileged` - boolean flag from the EntraOps dataset indicating whether the role
     is considered privileged.
-  - `EntraOpsCategory` — the set of permission categories the role covers.
-  - `Categories` — comma-separated categories from the classification dataset.
-  - `RoleMembers` — count of users assigned to the role.
-  - `RoleAssignments` — a list of per-user detail bags containing `AccountName`,
+  - `EntraOpsCategory` - the set of permission categories the role covers.
+  - `Categories` - comma-separated categories from the classification dataset.
+  - `RoleMembers` - count of users assigned to the role.
+  - `RoleAssignments` - a list of per-user detail bags containing `AccountName`,
     `AccountUPN`, `UserType` (Member or Guest), `Tags`, `AccountEnabled` (Yes/No),
     and `RiskState`.
-  - `RiskyAdmins` — boolean flag set to `true` if any member of the role has a `RiskState`
+  - `RiskyAdmins` - boolean flag set to `true` if any member of the role has a `RiskState`
     of `AtRisk`.
-  - `GuestAsAdmins` — boolean flag set to `true` if any member of the role has a
+  - `GuestAsAdmins` - boolean flag set to `true` if any member of the role has a
     `UserType` of `Guest`.
 
   A true positive for concern would be a ControlPlane role (e.g. Global Administrator)
@@ -126,7 +126,7 @@ falsePositives:
 curatorNotes: |
   This hunt is currently Experimental. The external dataset from Cloud-Architekt
   (Classification_EntraIdDirectoryRoles.json) is fetched at query runtime via
-  `externaldata()` — ensure the Sentinel workspace has outbound HTTPS access to
+  `externaldata()` - ensure the Sentinel workspace has outbound HTTPS access to
   raw.githubusercontent.com, or consider caching the dataset in an Azure Storage account
   or Watchlist.
 
@@ -135,7 +135,7 @@ curatorNotes: |
   sync rather than real-time state.
 
   Signal strength is set to Medium because this is an inventory/audit hunt rather than an
-  event-driven detection — findings require analyst judgment to distinguish legitimate
+  event-driven detection - findings require analyst judgment to distinguish legitimate
   administrative configuration from security concerns. Consider promoting to Production
   once an exclusion list of approved guest administrators and known break-glass accounts
   has been established.
@@ -144,11 +144,11 @@ curatorNotes: |
   new `RiskyAdmins` or `GuestAsAdmins` flags appear compared to the previous run.
 
 references:
-  - label: "MITRE ATT&CK: Account Discovery — Cloud Account (T1087.004)"
+  - label: "MITRE ATT&CK: Account Discovery - Cloud Account (T1087.004)"
     url: https://attack.mitre.org/techniques/T1087/004/
-  - label: "MITRE ATT&CK: Valid Accounts — Cloud Accounts (T1078.004)"
+  - label: "MITRE ATT&CK: Valid Accounts - Cloud Accounts (T1078.004)"
     url: https://attack.mitre.org/techniques/T1078/004/
-  - label: "Cloud-Architekt/AzurePrivilegedIAM — EntraOps Classification"
+  - label: "Cloud-Architekt/AzurePrivilegedIAM - EntraOps Classification"
     url: https://github.com/Cloud-Architekt/AzurePrivilegedIAM
   - label: "Microsoft: Entra ID built-in roles"
     url: https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
