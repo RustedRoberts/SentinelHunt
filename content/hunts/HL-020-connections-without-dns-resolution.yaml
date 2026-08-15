@@ -1,0 +1,147 @@
+id: HL-020
+title: External Connections With No Preceding DNS Resolution
+summary: >
+  Finds devices connecting to external IPs that were never resolved via the Windows name
+  resolution path on the same host, which is how implants with hard-coded or
+  configuration-supplied addresses typically behave. Legitimate software rarely connects
+  externally without a matching DNS lookup on the same device.
+hypothesis: |
+  Malware that embeds a hard-coded C2 IP, or receives one via configuration rather than a
+  domain name, connects directly without triggering a DNS query that Windows would record
+  against the host. We expect a device to establish sustained external connections to an IP
+  for which no `RemoteUrl`/DNS resolution was ever observed on that same device, despite
+  meaningful connection volume.
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: Unmapped
+    name: No dedicated Enterprise technique for direct-to-IP callback (see curator's notes)
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Validated
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  Device/process/IP triples with at least 4 distinct active hours of external connections
+  and no matching device-local DNS resolution for that IP anywhere in the lookback window.
+  Expect a substantial share of results to be legitimate — see the false positive class
+  below, which is confirmed common enough in testing to be the primary tuning lever for
+  this hunt.
+
+  Apply the non-standard-port variant (add `| where Ports !has_any (80, 443)`) to shrink the
+  result set to something closer to genuinely suspicious direct-to-IP behaviour — it maps
+  cleanly to T1571 and was materially shorter in testing than the unfiltered query.
+
+investigationSteps:
+  - "Before triaging, check whether the initiating process is a JVM, Go, or Python-based
+    agent — these open sockets directly and never populate `RemoteUrl` regardless of
+    whether DNS resolution actually occurred. Expect CI servers, Java application servers,
+    and container tooling here; this is the dominant false-positive class for this hunt."
+  - "Pull `InitiatingProcessCommandLine` and `InitiatingProcessFolderPath` for the
+    device/process pair — the command line is usually decisive for identifying build
+    agents, deployment tooling, and package managers polling upstream repositories."
+  - "Check for a single consistent binary path and SHA1 across every destination for that
+    process — this is a stronger 'clean' signal for the JVM/Go/Python false-positive class
+    than the absence of DNS resolution is a 'suspicious' signal on its own."
+  - "Attribute the IP via WHOIS/TI, resolving the hostname first if any sibling process on
+    the same IP does perform DNS resolution elsewhere in the tenant — shared CDN and
+    anycast addresses carry the reputation of every tenant behind them."
+  - "Where the destination is confirmed and legitimate but the connecting process is unusual
+    for that host's role, treat that mismatch — not the missing DNS resolution — as the
+    finding."
+
+falsePositives:
+  - JVM, Go, and Python-based agents open sockets directly rather than through the Windows
+    name resolution path, so `RemoteUrl` is never populated for them regardless of whether
+    a DNS lookup occurred anywhere in the process. This produces CI servers, Java
+    application servers, and container tooling in the output as a matter of course.
+  - Continuous integration servers polling version control over HTTPS or SSH — high volume,
+    single stable binary path and hash, direct-to-IP by design of the underlying HTTP
+    client library.
+  - Any internally-resolved destination whose DNS lookup happened on a different device
+    than the one connecting (split-horizon resolvers, connection pooling proxies, forwarders)
+    — this hunt only checks for resolution on the *same* device.
+
+curatorNotes: |
+  **Flagged as unmapped in the source pack, deliberately.** Direct-to-IP callback has no
+  precise Enterprise ATT&CK technique of its own. T1071 (Application Layer Protocol) is too
+  generic to be a meaningful mapping here and would dilute coverage reporting if applied
+  uniformly. The non-standard-port variant maps cleanly to T1571 (Non-Standard Port) — prefer
+  that mapping wherever the variant applies.
+
+  This hunt shares the IP-normalisation and non-routable exclusion logic used by [[HL-017]].
+  The `resolved` reference set is built from *any* device in the tenant with a non-empty
+  `RemoteUrl` for that IP — if you need same-device-only resolution semantics (stricter,
+  fewer false negatives from split-horizon DNS) rather than tenant-wide, change the `by`
+  clause in the `resolved` let-statement to include `DeviceId`.
+
+  The false-positive class described above was confirmed directly in a production tuning
+  run: the single largest external contributor to raw connection volume in that estate never
+  appeared in destination-hostname enrichment at all, because its initiating process opened
+  sockets directly. Command-line profiling identified it immediately as a CI server with
+  multiple build agents polling version control — a single binary path and hash across every
+  destination is what actually cleared it, not the absence of DNS resolution.
+
+references:
+  - label: "MITRE ATT&CK: Non-Standard Port (T1571)"
+    url: https://attack.mitre.org/techniques/T1571/
+  - label: "MITRE ATT&CK: Application Layer Protocol (T1071)"
+    url: https://attack.mitre.org/techniques/T1071/
+  - label: "Microsoft: DeviceNetworkEvents table reference"
+    url: https://learn.microsoft.com/defender-xdr/advanced-hunting-devicenetworkevents-table
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // External connections with no matching DNS resolution on the same device
+      let lookback = 3d;
+      let non_routable = dynamic([
+          "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+          "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24",
+          "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+          "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32"
+      ]);
+      let resolved =
+          DeviceNetworkEvents
+          | where Timestamp > ago(lookback)
+          | where isnotempty(RemoteUrl)
+          | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+          | summarize by TenantId, DeviceId, RemoteIPNorm;
+      DeviceNetworkEvents
+      | where Timestamp > ago(lookback)
+      | where ActionType in ("ConnectionSuccess", "ConnectionSuccessAggregatedReport")
+      | where isempty(RemoteUrl) and isnotempty(RemoteIP)
+      | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+      | where RemoteIPNorm !contains ":"
+      | where ipv4_is_private(RemoteIPNorm) != true
+      | where ipv4_is_in_any_range(RemoteIPNorm, non_routable) != true
+      | summarize Connections = count(),
+                  ActiveHours = dcount(bin(Timestamp, 1h)),
+                  Ports = make_set(RemotePort, 10),
+                  FirstSeen = min(Timestamp),
+                  LastSeen = max(Timestamp)
+          by TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm
+      | where ActiveHours >= 4
+      | join kind=leftanti resolved on TenantId, DeviceId, RemoteIPNorm
+      | sort by ActiveHours desc, Connections desc
+      // Variant: isolate non-standard port usage, maps to T1571
+      // | where Ports !has_any (80, 443)
+
+relatedHunts:
+  - HL-017
+  - HL-019
+  - HL-021

@@ -1,0 +1,151 @@
+id: HL-021
+title: Rare and New Process-to-Destination Pairs
+summary: >
+  Surfaces process/external-destination pairs that are both new (not seen in a trailing
+  baseline window) and rare (touching one or two devices) within the tenant. A prevalence
+  hunt rather than a timing hunt, it catches C2 that is too slow or irregular for any
+  beacon-timing approach in this pack to see.
+hypothesis: |
+  Whatever its timing characteristics, a C2 implant's process/destination combination is
+  usually new to the environment and confined to a small number of compromised hosts.
+  Baselining what each process normally talks to, then flagging combinations that are both
+  absent from a 21 day trailing baseline and present on no more than 2 devices in the most
+  recent day, surfaces this class of activity independent of connection cadence — including
+  slow, irregular callbacks that [[HL-017]] and [[HL-018]] cannot detect by timing alone.
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: T1071
+    name: Application Layer Protocol
+  - id: T1102.002
+    name: Web Service - Bidirectional Communication
+
+platforms:
+  - Windows
+
+methodology: Anomaly
+maturity: Exploratory
+signal: Low
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  Process/destination pairs seen on 1-2 devices in the last day that do not appear anywhere
+  in the preceding 21 days for that tenant. Expect a high volume of legitimate novelty —
+  this hunt is intentionally broad and depends heavily on the living-off-the-land process
+  filter (see implementation) or a comparably tight downstream filter to be triageable at
+  scale. Without narrowing, this is closer to a rare-event feed than a short candidate list.
+
+investigationSteps:
+  - "Apply the living-off-the-land process filter first in any estate where the unfiltered
+    result count is unmanageable — `rundll32.exe`, `regsvr32.exe`, `mshta.exe`,
+    `wscript.exe`, `cscript.exe`, `powershell.exe`, `pwsh.exe`, `certutil.exe`, `curl.exe`,
+    `bitsadmin.exe`, `msbuild.exe`, `installutil.exe`, `msiexec.exe`, `conhost.exe`. These
+    processes both LOLBin-abuse well and rarely have a legitimate reason to be establishing
+    brand-new external connections."
+  - "Resolve the destination and check `FolderPaths`/`CommandLines` for the initiating
+    process — new-but-explainable (a fresh SaaS integration, a newly-adopted CDN endpoint)
+    clears quickly; new-and-unexplained on a LOLBin does not."
+  - "Check whether the destination is a SaaS or code-hosting platform. If so, consider
+    T1102.002 (Web Service, Bidirectional Communication) over generic T1071 — the technique
+    mapping for this hunt is intentionally decided at triage rather than fixed at
+    definition, since it depends on what the destination turns out to be."
+  - "Where the result resolves to unsanctioned remote monitoring and management software,
+    consider T1219 (Remote Access Tools) — verify current sub-technique numbering against
+    the live ATT&CK matrix before recording it, since T1219 has been restructured."
+  - "Attribute the destination via WHOIS/TI, resolving the hostname before trusting IP
+    reputation for the same shared-CDN reasons as the other hunts in this pack."
+
+falsePositives:
+  - Any legitimate software rollout, feature flag, or configuration change that introduces a
+    genuinely new external endpoint for the first time in the baseline window — the
+    baseline-absence signal cannot distinguish "new to this tenant" from "new and
+    malicious."
+  - One-off administrative or diagnostic tooling run manually by IT staff, which is rare by
+    nature and will match the device-count filter even when entirely legitimate.
+  - Third-party auto-updaters that rotate CDN endpoints outside the baseline window.
+
+curatorNotes: |
+  This is the broadest and lowest-precision hunt in the pack by design — it trades timing
+  specificity for coverage of slow/irregular C2 that the other hunts structurally cannot
+  see. Expect to spend more time tuning the process filter and baseline window than tuning
+  any statistical threshold.
+
+  **Tuning parameters:** `baseline_window` (21d — shorter windows increase false "new"
+  flags from normal periodic-but-infrequent legitimate traffic), `recent_window` (1d),
+  `DeviceCount <= 2` (raise cautiously; this is the primary rarity control and loosening it
+  quickly turns the hunt into a general novelty feed).
+
+  Reuses the same `external()` IP-normalisation function as [[HL-017]] and [[HL-019]] — see
+  those hunts' notes for the IPv4-mapped IPv6 and non-routable-range pitfalls it avoids.
+
+  Consider running this hunt with the LOLBin filter as the default rather than the optional
+  variant in any estate where analyst time is the binding constraint — the unfiltered
+  version is closer to a research feed than a triage queue.
+
+references:
+  - label: "MITRE ATT&CK: Application Layer Protocol (T1071)"
+    url: https://attack.mitre.org/techniques/T1071/
+  - label: "MITRE ATT&CK: Web Service (T1102)"
+    url: https://attack.mitre.org/techniques/T1102/
+  - label: "MITRE ATT&CK: Bidirectional Communication (T1102.002)"
+    url: https://attack.mitre.org/techniques/T1102/002/
+  - label: "MITRE ATT&CK: Remote Access Tools (T1219)"
+    url: https://attack.mitre.org/techniques/T1219/
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Process to external destination pairs that are new and rare within the tenant
+      let baseline_window = 21d;
+      let recent_window = 1d;
+      let non_routable = dynamic([
+          "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+          "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24",
+          "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+          "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32"
+      ]);
+      let external = (T: (RemoteIP: string)) { T
+          | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+          | where RemoteIPNorm !contains ":"
+          | where ipv4_is_private(RemoteIPNorm) != true
+          | where ipv4_is_in_any_range(RemoteIPNorm, non_routable) != true
+      };
+      let baseline =
+          DeviceNetworkEvents
+          | where Timestamp between (ago(baseline_window) .. ago(recent_window))
+          | invoke external()
+          | summarize by TenantId, InitiatingProcessFileName, RemoteIPNorm;
+      DeviceNetworkEvents
+      | where Timestamp > ago(recent_window)
+      | invoke external()
+      | summarize Connections = count(),
+                  DeviceCount = dcount(DeviceId),
+                  Devices = make_set(DeviceName, 10),
+                  Domains = make_set(RemoteUrl, 5),
+                  Ports = make_set(RemotePort, 10),
+                  FolderPaths = make_set(InitiatingProcessFolderPath, 5),
+                  FirstSeen = min(Timestamp)
+          by TenantId, InitiatingProcessFileName, RemoteIPNorm
+      | where DeviceCount <= 2
+      | join kind=leftanti baseline on TenantId, InitiatingProcessFileName, RemoteIPNorm
+      | sort by Connections desc
+      // Tighten with a living-off-the-land process filter when the result count is unmanageable:
+      // | where InitiatingProcessFileName in~ (
+      //     "rundll32.exe", "regsvr32.exe", "mshta.exe", "wscript.exe", "cscript.exe",
+      //     "powershell.exe", "pwsh.exe", "certutil.exe", "curl.exe", "bitsadmin.exe",
+      //     "msbuild.exe", "installutil.exe", "msiexec.exe", "conhost.exe")
+
+relatedHunts:
+  - HL-017
+  - HL-018
+  - HL-020

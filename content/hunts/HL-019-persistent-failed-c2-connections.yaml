@@ -1,0 +1,135 @@
+id: HL-019
+title: Persistent Failed Outbound Connections (Dead or Blocked C2)
+summary: >
+  Finds devices and processes that repeatedly fail to connect to the same external
+  destination over a sustained period, indicating an implant that is still running while
+  its infrastructure is down, blocked, or sinkholed. Often the fastest route to an implant
+  that never established a working channel.
+hypothesis: |
+  A dead, sinkholed, or firewall-blocked C2 server does not stop an implant from trying to
+  reach it. Unlike a legitimate client, which typically backs off, alerts a user, or gives
+  up after transient failures, a beacon retries on its configured schedule indefinitely.
+  We expect a process on a device to accumulate a high count of failed connection attempts
+  to the same external IP, spread across many distinct hours, with no corresponding
+  successful connection.
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: T1008
+    name: Fallback Channels
+
+platforms:
+  - Windows
+
+methodology: Behavioural
+maturity: Exploratory
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  Device/process/destination triples with at least 50 total failed connection attempts
+  (`ConnectionFailedAggregatedReport`) spread across at least 6 distinct hours in the
+  lookback window, sorted by active-hour span and total failure count. Unlike [[HL-017]],
+  this hunt does not require aggregated reporting coverage checks to be skipped — the same
+  coverage caveat applies: a tenant without aggregated reporting enabled returns zero rows
+  indistinguishable from a tenant with no failures.
+
+investigationSteps:
+  - "Confirm the destination is genuinely unreachable, not merely slow or rate-limited —
+    check `ConnectionSuccessAggregatedReport` for the same IP over a wider window before
+    concluding it is dead infrastructure."
+  - "Resolve the IP to a hostname via `RemoteUrl` where available. An IP with no successful
+    connections anywhere in the tenant and no DNS resolution on the failing host is a
+    stronger signal than one that resolves to a known-dead or recently-deprecated vendor
+    endpoint."
+  - "Profile the initiating process: folder path, SHA1, and command line. Persistent retry
+    behaviour with no user-facing error and no corresponding UI process is more suggestive
+    of an implant than of ordinary software."
+  - "Check whether the failures are to a non-standard port — this also supports T1571
+    (Non-Standard Port) and narrows the search meaningfully when combined with process
+    rarity."
+  - "Attribute the IP via WHOIS/TI. A destination with no ownership history, recently
+    registered, or previously reported as malicious infrastructure elevates this from
+    'broken software' to 'implant with dead C2'."
+
+falsePositives:
+  - Legitimate software pointed at infrastructure that has since been decommissioned or
+    migrated (stale configuration, hardcoded IP that the vendor has since rotated away
+    from).
+  - Client software retrying against a service that is intentionally rate-limiting or
+    temporarily blocking the source (misconfigured proxy/firewall rule, IP reputation
+    block on a legitimate SaaS endpoint).
+  - Health-check or monitoring agents configured to poll a target that is down for reasons
+    unrelated to security (planned maintenance, decommissioned monitoring target never
+    removed from configuration).
+
+curatorNotes: |
+  This hunt shares the same telemetry source and IP-normalisation requirements as [[HL-017]]
+  — the aggregated-reporting coverage check, the IPv4-mapped IPv6 normalisation, and the
+  `RemoteIPType` unreliability documented there all apply here unchanged.
+
+  Unlike the volume-uniformity and interval-regularity hunts, this one does not measure
+  timing regularity at all — it is a pure persistence signal. That makes it comparatively
+  cheap to run and a reasonable first pass before the more statistically involved hunts,
+  since a dead C2 channel is often the easiest of the group to confirm: there is no
+  legitimate-traffic baseline to separate it from, only "is this destination supposed to be
+  reachable."
+
+  **Tuning parameters:** `ActiveHours >= 6` and `TotalFailures >= 50` are deliberately loose
+  floors intended to catch low-and-slow retry behaviour as well as fast retry loops — tune
+  down `TotalFailures` first if the result set is empty in a smaller estate, since the floor
+  was set against a materially larger fleet than most single-tenant deployments.
+
+references:
+  - label: "MITRE ATT&CK: Fallback Channels (T1008)"
+    url: https://attack.mitre.org/techniques/T1008/
+  - label: "MITRE ATT&CK: Non-Standard Port (T1571)"
+    url: https://attack.mitre.org/techniques/T1571/
+  - label: "Microsoft: Aggregated reporting in Microsoft Defender for Endpoint"
+    url: https://learn.microsoft.com/defender-endpoint/aggregated-reporting
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Persistent failed outbound connections - dead or blocked C2 infrastructure
+      let lookback = 7d;
+      let non_routable = dynamic([
+          "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+          "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24",
+          "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+          "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32"
+      ]);
+      DeviceNetworkEvents
+      | where Timestamp > ago(lookback)
+      | where ActionType == "ConnectionFailedAggregatedReport"
+      | where isnotempty(RemoteIP)
+      | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+      | where RemoteIPNorm !contains ":"
+      | where ipv4_is_private(RemoteIPNorm) != true
+      | where ipv4_is_in_any_range(RemoteIPNorm, non_routable) != true
+      | extend FailedCount = toint(todynamic(AdditionalFields).uniqueEventsAggregated)
+      | where FailedCount > 0
+      | summarize TotalFailures = sum(FailedCount),
+                  ActiveHours = dcount(bin(Timestamp, 1h)),
+                  FirstSeen = min(Timestamp),
+                  LastSeen = max(Timestamp),
+                  Ports = make_set(RemotePort, 10)
+          by TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm
+      | where ActiveHours >= 6 and TotalFailures >= 50
+      | extend FailuresPerActiveHour = toint(TotalFailures / ActiveHours)
+      | sort by ActiveHours desc, TotalFailures desc
+
+relatedHunts:
+  - HL-017
+  - HL-018
+  - HL-020

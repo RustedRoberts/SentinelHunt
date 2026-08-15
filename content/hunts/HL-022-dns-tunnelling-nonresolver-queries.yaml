@@ -1,0 +1,146 @@
+id: HL-022
+title: DNS Queries Bypassing Internal Resolvers
+summary: >
+  Finds devices sending DNS queries (port 53) directly to an external IP rather than
+  through an internal resolver — a schema-independent fallback for spotting DNS tunnelling
+  and DNS-based C2 that does not depend on the (unvalidated, sensor-version-dependent)
+  `DnsQueryResponse` field layout used by higher-fidelity subdomain-cardinality detection.
+hypothesis: |
+  DNS tunnelling and DNS-based C2 implants frequently ship their own resolver logic and
+  query an attacker-controlled or open recursive resolver directly, bypassing the
+  organisation's configured internal DNS servers entirely. A device sending port 53 traffic
+  to an external, non-private IP is either misconfigured, running non-standard software, or
+  circumventing DNS-based security controls (filtering, logging) on purpose — none of which
+  are common in a well-managed estate.
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: T1071.004
+    name: DNS
+
+platforms:
+  - Windows
+
+methodology: Anomaly
+maturity: Exploratory
+signal: Low
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+  - product: Microsoft Defender for Endpoint
+    table: DeviceEvents
+    required: false
+
+whatYoullSee: |
+  A short list of external IPs receiving port 53 traffic directly from devices, with query
+  counts, device counts, and the initiating processes involved. This fallback query returns
+  little in a well-managed estate where all DNS goes through internal resolvers or DoH —
+  that is expected. It is a coarse signal intended to be a safe default while the
+  higher-fidelity subdomain-cardinality query (see curator's notes) remains unvalidated
+  against the live `DeviceEvents` schema.
+
+investigationSteps:
+  - "Confirm the destination IP is not a legitimate secondary/public resolver the
+    organisation has intentionally configured (e.g. 1.1.1.1, 8.8.8.8) before treating this
+    as a candidate."
+  - "Profile the initiating process — DNS tunnelling clients are rarely `svchost.exe` or a
+    standard resolver stub; an unfamiliar or unsigned binary querying port 53 directly is a
+    much stronger signal than the port usage alone."
+  - "If the process and volume look interesting, pivot to the parent-domain / subdomain
+    query in the curator's notes manually against a live schema check rather than relying on
+    it as a scheduled hunt until validated."
+  - "Attribute the destination IP via WHOIS/TI — open recursive resolvers used
+    legitimately by security tooling (e.g. passive DNS collectors) are a known false
+    positive class here."
+
+falsePositives:
+  - Security tooling and passive DNS collection agents that intentionally query external
+    resolvers directly as part of their function.
+  - Devices explicitly configured to use a public secondary resolver (1.1.1.1, 8.8.8.8,
+    9.9.9.9) as a matter of policy rather than to evade internal DNS.
+  - VPN or SD-WAN clients that tunnel DNS to a corporate resolver over a non-standard path
+    that still resolves to an external-looking IP from the endpoint's perspective.
+
+curatorNotes: |
+  **This is the validated fallback, not the primary detection.** The higher-fidelity
+  approach — flagging parent domains with abnormally high subdomain cardinality and long
+  average subdomain length, which is what actually distinguishes tunnelling from ordinary
+  DNS chatter — depends on the `AdditionalFields` key names for `DnsQueryResponse` in
+  `DeviceEvents`. Those key names have changed across sensor versions and were **not
+  confirmed against a live schema** when this pack was built. Do not schedule the query
+  below until you have validated `DnsQueryString` (or whatever the current field is named)
+  against your own tenant's `DeviceEvents` output:
+
+  ```kusto
+  // DNS tunnelling indicators - high subdomain cardinality against a single parent domain
+  // UNVALIDATED: confirm AdditionalFields key names for DnsQueryResponse before using
+  let lookback = 1d;
+  DeviceEvents
+  | where Timestamp > ago(lookback)
+  | where ActionType == "DnsQueryResponse"
+  | extend QueryName = tostring(todynamic(AdditionalFields).DnsQueryString)
+  | where isnotempty(QueryName)
+  | extend Labels = split(QueryName, ".")
+  | extend LabelCount = array_length(Labels)
+  | where LabelCount >= 3
+  | extend ParentDomain = strcat(tostring(Labels[LabelCount - 2]), ".", tostring(Labels[LabelCount - 1])),
+           Subdomain = tostring(Labels[0])
+  | summarize UniqueSubdomains = dcount(Subdomain),
+              TotalQueries = count(),
+              AvgSubdomainLength = avg(strlen(Subdomain)),
+              MaxSubdomainLength = max(strlen(Subdomain)),
+              Devices = dcount(DeviceId),
+              SampleQueries = make_set(QueryName, 5)
+      by TenantId, ParentDomain, InitiatingProcessFileName
+  | where UniqueSubdomains >= 50 and AvgSubdomainLength >= 20 and Devices <= 3
+  | extend QueriesPerSubdomain = round(todouble(TotalQueries) / UniqueSubdomains, 2)
+  | sort by UniqueSubdomains desc
+  ```
+
+  Once validated, promote that query to be the primary implementation on this hunt and move
+  the port-53 query below to a secondary/fallback role — the reverse of how this file is
+  currently structured. Bump `maturity` to `Validated` only after a live-schema confirmation
+  run, and re-check current T1219 (Remote Access Tools) sub-technique numbering if that
+  mapping ever becomes relevant to a triaged result here, since ATT&CK has restructured it.
+
+  This detection also touches Defense Evasion, not just Command and Control: DGA-generated
+  subdomains map additionally to T1568.002, and encoded payloads carried in subdomain labels
+  map to T1132.001 (Standard Encoding), which formally sits under Defense Evasion rather than
+  C2 — worth noting in any coverage-mapping exercise even though this hunt is filed under
+  TA0011.
+
+references:
+  - label: "MITRE ATT&CK: DNS (T1071.004)"
+    url: https://attack.mitre.org/techniques/T1071/004/
+  - label: "MITRE ATT&CK: Domain Generation Algorithms (T1568.002)"
+    url: https://attack.mitre.org/techniques/T1568/002/
+  - label: "MITRE ATT&CK: Standard Encoding (T1132.001)"
+    url: https://attack.mitre.org/techniques/T1132/001/
+  - label: "Microsoft: DeviceEvents table reference"
+    url: https://learn.microsoft.com/defender-xdr/advanced-hunting-deviceevents-table
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Fallback: hosts sending DNS queries directly to an external IP, bypassing internal resolvers
+      // Requires no schema assumptions beyond DeviceNetworkEvents
+      DeviceNetworkEvents
+      | where Timestamp > ago(1d)
+      | where RemotePort == 53
+      | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+      | where ipv4_is_private(RemoteIPNorm) != true
+      | summarize Queries = count(), Devices = dcount(DeviceId), Processes = make_set(InitiatingProcessFileName, 10)
+          by TenantId, RemoteIPNorm
+      | sort by Queries desc
+
+relatedHunts:
+  - HL-017
+  - HL-020

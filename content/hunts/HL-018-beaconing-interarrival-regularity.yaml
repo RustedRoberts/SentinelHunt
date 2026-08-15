@@ -1,0 +1,154 @@
+id: HL-018
+title: Beaconing via Regular Inter-Arrival Intervals (Low and Slow)
+summary: >
+  Finds process-to-destination relationships where the time between individual raw
+  connections is unusually regular, catching long-sleep, heavily-jittered beacons that
+  never generate enough volume in one hour to appear in aggregated connection reports.
+  Complements [[HL-017]], which only covers fast beacons.
+hypothesis: |
+  A beacon with a long sleep interval and jitter still produces a near-constant interval
+  between individual connections to its controller when measured over enough samples. This
+  is the low-volume counterpart to [[HL-017]]'s hourly-volume approach: instead of counting
+  connections per hour, it measures the time gap between consecutive connections to the
+  same destination and flags relationships where the standard deviation of that gap is
+  small relative to the mean (low jitter ratio).
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: T1071
+    name: Application Layer Protocol
+
+platforms:
+  - Windows
+
+methodology: Statistical
+maturity: Exploratory
+signal: Low
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  Relationships with at least `min_connections` raw connections to a single destination and
+  port, a mean inter-arrival interval between 30 seconds and 24 hours, and a jitter ratio
+  (stdev of interval / mean interval) at or below `max_jitter_ratio`. Results are naturally
+  sparse compared to [[HL-017]] because raw `ConnectionSuccess` events are throttled far
+  more aggressively than aggregated reports.
+
+  Treat a high jitter ratio as inconclusive, not exculpatory — see the reliability caveat
+  in the curator's notes before drawing conclusions from this hunt in isolation.
+
+investigationSteps:
+  - "Before triaging any individual result, check the connection volume for that
+    relationship against the sensor's raw-event throttling behaviour (see curator's notes).
+    Results in the unreliable band should be corroborated with [[HL-017]] or discarded
+    rather than triaged directly."
+  - "Resolve the destination IP to a hostname via `RemoteUrl` on the same events. Absence of
+    a resolution suggests the process is opening sockets directly — move to command-line
+    profiling."
+  - "Pull `InitiatingProcessFolderPath`, `InitiatingProcessSHA1` and
+    `InitiatingProcessCommandLine` for the device/process pair. A single hash and path
+    across all destinations, with a command line that plausibly explains fixed-interval
+    polling (license checks, update checks, health checks), clears most results quickly."
+  - "Attribute the destination via WHOIS/TI, resolving the hostname before trusting IP
+    reputation — shared CDN and anycast addresses carry the reputation of every tenant
+    behind them."
+  - "For confirmed vendor software with fixed-interval polling, confirm authorisation before
+    disposal rather than treating the regularity itself as the finding."
+
+falsePositives:
+  - Licensing, update-check, and heartbeat/health-check clients with a fixed polling
+    interval and little or no jitter — mechanically indistinguishable from a beacon by
+    timing alone.
+  - Any relationship in the unreliable sampling band (see curator's notes) where the
+    measured "interval" is actually a reporting artefact of sensor throttling rather than
+    real connection timing.
+
+curatorNotes: |
+  **Critical caveat, validated empirically:** the sensor heavily throttles raw connection
+  reporting. Measured against a single high-volume relationship, the ratio of raw
+  `ConnectionSuccess` events to aggregated events was roughly 1:2,000 through 1:4,900 in
+  testing. At that sampling rate the intervals this hunt measures are reporting artefacts,
+  not beacon timing.
+
+  This hunt is therefore only reliable below roughly a few hundred connections per hour —
+  which is exactly the range [[HL-017]] cannot reach, because that volume rarely triggers
+  an aggregated record. Treat the two hunts as complementary with an unreliable band in the
+  middle, not as interchangeable. Never present a raw `ConnectionSuccess` count to an
+  analyst as though it were a true connection volume.
+
+  **Tuning parameters:** `lookback` (7d), `min_connections` (15 — floor for the standard
+  deviation to be meaningful), `max_jitter_ratio` (0.25 default). The
+  `MeanInterval between (30.0 .. 86400.0)` bound excludes sub-30-second bursts (likely
+  retries/keep-alives rather than distinct beacon events) and intervals longer than a day
+  (too few samples in a 7 day window to say anything about regularity).
+
+  This hunt reuses the same IP-normalisation and non-routable exclusion logic as [[HL-017]]
+  — see that hunt's curator's notes for the IPv4-mapped IPv6 and `ipv4_is_private()` pitfalls
+  it avoids.
+
+references:
+  - label: "MITRE ATT&CK: Application Layer Protocol (T1071)"
+    url: https://attack.mitre.org/techniques/T1071/
+  - label: "MITRE ATT&CK: Web Protocols (T1071.001)"
+    url: https://attack.mitre.org/techniques/T1071/001/
+  - label: "Microsoft: DeviceNetworkEvents table reference"
+    url: https://learn.microsoft.com/defender-xdr/advanced-hunting-devicenetworkevents-table
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Beaconing by regular inter-arrival intervals
+      let lookback = 7d;
+      let min_connections = 15;
+      let max_jitter_ratio = 0.25;      // stdev of interval / mean interval
+      let non_routable = dynamic([
+          "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+          "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24",
+          "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+          "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32"
+      ]);
+      DeviceNetworkEvents
+      | where Timestamp > ago(lookback)
+      | where ActionType == "ConnectionSuccess"
+      | where isnotempty(RemoteIP)
+      | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+      | where RemoteIPNorm !contains ":"
+      | where ipv4_is_private(RemoteIPNorm) != true
+      | where ipv4_is_in_any_range(RemoteIPNorm, non_routable) != true
+      | project TenantId, Timestamp, DeviceId, DeviceName, InitiatingProcessFileName,
+                InitiatingProcessFolderPath, RemoteIPNorm, RemotePort, RemoteUrl
+      | extend SeriesKey = strcat(TenantId, "|", DeviceId, "|", InitiatingProcessFileName, "|", RemoteIPNorm, "|", RemotePort)
+      | order by SeriesKey asc, Timestamp asc
+      | extend PrevTime = prev(Timestamp, 1), PrevKey = prev(SeriesKey, 1)
+      | where SeriesKey == PrevKey
+      | extend DeltaSeconds = datetime_diff('second', Timestamp, PrevTime)
+      | where DeltaSeconds > 0
+      | summarize Connections = count(),
+                  FirstSeen = min(PrevTime),
+                  LastSeen = max(Timestamp),
+                  MeanInterval = avg(DeltaSeconds),
+                  StdevInterval = stdev(DeltaSeconds),
+                  MedianInterval = percentile(DeltaSeconds, 50),
+                  Domains = make_set(RemoteUrl, 5),
+                  FolderPaths = make_set(InitiatingProcessFolderPath, 5)
+          by TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm, RemotePort
+      | where Connections >= min_connections
+      | extend JitterRatio = round(StdevInterval / MeanInterval, 3)
+      | where JitterRatio <= max_jitter_ratio and MeanInterval between (30.0 .. 86400.0)
+      | extend SpanHours = round(todouble(datetime_diff('minute', LastSeen, FirstSeen)) / 60.0, 1)
+      | sort by JitterRatio asc, Connections desc
+
+relatedHunts:
+  - HL-017
+  - HL-019
+  - HL-020
+  - HL-021

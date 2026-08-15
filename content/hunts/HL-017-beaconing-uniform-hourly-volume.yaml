@@ -1,0 +1,251 @@
+id: HL-017
+title: Beaconing via Uniform Hourly Connection Volume
+summary: >
+  Surfaces process-to-destination relationships whose hourly connection volume is
+  abnormally uniform over a multi-day window, using Microsoft Defender for Endpoint's
+  aggregated connection reports as a pre-summarised time series. Uniformity is combined
+  with destination rarity across the estate to separate scheduled C2 callbacks from
+  sanctioned machine-to-machine automation.
+hypothesis: |
+  An implant maintaining a command and control channel contacts its controller on a
+  schedule. Even with jitter applied, a fast beacon (short sleep interval) produces a
+  near-constant number of connections per hour to a single destination, sustained over
+  days — a flatter, more uniform hourly volume than human-driven or naturally bursty
+  traffic.
+
+  Legitimate software produces the same signature, so uniformity alone is not treated as
+  suspicious. It is used to build a small candidate set of (device, process, destination)
+  relationships with a low coefficient of variation in hourly connection count, which is
+  then narrowed using destination prevalence across the tenant and resolved through
+  process and destination attribution.
+author: RustedRoberts
+updated: "2026-08-15"
+version: "1.0"
+
+tactics:
+  - Command and Control
+
+techniques:
+  - id: T1071
+    name: Application Layer Protocol
+
+platforms:
+  - Windows
+
+methodology: Statistical
+maturity: Validated
+signal: Medium
+
+dataSources:
+  - product: Microsoft Defender for Endpoint
+    table: DeviceNetworkEvents
+    required: true
+
+whatYoullSee: |
+  A short list of (device, process, external IP) relationships with a low coefficient of
+  variation across hourly connection counts, sustained for at least `min_active_hours` out
+  of the lookback window, and contacted by no more than `max_prevalence` of devices in the
+  tenant. Results are dominated by always-on servers rather than workstations — see the
+  curator's notes on `ActiveRatio` bias before concluding a quiet result set means no
+  beaconing.
+
+  Before trusting any result — including a null result — confirm aggregated reporting is
+  actually enabled for the tenant. It is an opt-in feature under **Settings > Endpoints >
+  Advanced features**, can take up to seven days to populate after enabling, and a tenant
+  with it disabled returns zero rows, which is indistinguishable from a tenant with no
+  beaconing:
+
+  ```kusto
+  DeviceNetworkEvents
+  | where Timestamp > ago(1d)
+  | summarize
+      AggregatedRecords = countif(ActionType endswith "AggregatedReport"),
+      RawRecords        = countif(ActionType == "ConnectionSuccess"),
+      Devices           = dcount(DeviceId)
+      by TenantId
+  | extend AggregationEnabled = AggregatedRecords > 0
+  | sort by AggregationEnabled asc, Devices desc
+  ```
+
+investigationSteps:
+  - "Resolve the destination IP to a hostname via `RemoteUrl` on raw `ConnectionSuccess`
+    events for the same IP over the lookback window. If nothing resolves, the initiating
+    process is very likely opening sockets directly rather than through Windows name
+    resolution — move to process profiling rather than concluding the destination is
+    unresolved."
+  - "Profile the process on the host: pull `RemoteUrl`, `RemotePort`,
+    `InitiatingProcessFolderPath`, `InitiatingProcessSHA1` and
+    `InitiatingProcessCommandLine` for that process/device pair over the lookback window.
+    Multiple hashes or folder paths for the same process name on one host is the strongest
+    single indicator of masquerading."
+  - "Check whether the command line explains the connection volume. If it doesn't, that is
+    the question to answer next."
+  - "Attribute the destination via WHOIS or a threat intelligence platform, but resolve the
+    hostname first. Reputation scores on shared CDN/anycast edge addresses (Cloudflare,
+    Akamai, Fastly, CloudFront) reflect the worst tenant sharing that address, not this
+    traffic — an adverse score on resolved-to-mainstream-SaaS infrastructure is a false
+    lead, not a finding."
+  - "For confirmed vendor infrastructure, the remaining question is whether the software is
+    authorised, not whether the beacon shape is suspicious. RMM and monitoring agents
+    produce textbook beacon signatures by design and unsanctioned RMM is an established C2
+    vector (T1219) — confirm with the asset owner before disposal."
+
+falsePositives:
+  - Windows Delivery Optimization peer-to-peer traffic (`svchost.exe` on port 7680) — LAN
+    traffic that should be removed entirely by correct external-IP filtering; a large share
+    of unfiltered results in testing traced back to this alone.
+  - Backup agents, mail server health monitoring, virtualisation management, distributed
+    file replication and domain controller replication — internal machine-to-machine
+    traffic that is uniform by design and should also disappear once external filtering is
+    correct.
+  - Endpoint management SaaS agents, cloud analytics gateways, privileged access management
+    engines, and hybrid database agents — all produce textbook uniform beacon signatures
+    and are the dominant class of externally-surfaced true negatives.
+  - CI/CD runners and build servers polling source control over HTTPS or SSH — high,
+    uniform connection volume from a process that opens sockets directly, so it will not
+    appear in hostname-resolution enrichment.
+  - Developer tooling that routes through a CDN (e.g. Git credential helpers) — resolves to
+    shared edge infrastructure and can carry adverse third-party reputation for unrelated
+    tenants on the same address.
+
+curatorNotes: |
+  This hunt replaces an earlier version built on `series_decompose_anomalies()` over
+  device/process/IP series. That approach had several construction problems worth knowing
+  even if you never touch this query, because they recur in any `series_decompose_anomalies()`
+  hunt:
+
+  - **Summarise key narrower than the aggregation key.** MDE aggregates
+    `ConnectionSuccessAggregatedReport` on initiating process name, source IP, remote IP and
+    remote port. Grouping by anything narrower than that (e.g. omitting remote port) causes
+    multiple aggregated records per hour to collapse into one time-series point.
+  - **Irregular time axis.** `summarize ... make_list()` only emits entries for hours with
+    events; `series_decompose_anomalies()` assumes evenly spaced points. `make-series` with
+    an explicit step and default value is required.
+  - **`ipv4_is_private(RemoteIP) == false` fails silently.** It returns null for IPv6, and
+    `null == false` evaluates false, so IPv6 destinations pass through unfiltered. It also
+    does not exclude CGNAT, link-local, multicast or reserved space.
+  - **IPv4-mapped IPv6 addresses** (`::ffff:10.20.30.40`) defeat both `ipv4_is_private()`
+    (returns null) and a naive `contains "."` IPv4 test (the mapped form contains a dot).
+    Normalise with `iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)`
+    before filtering. In one tuning run, 118 of 288 unfiltered result rows were mapped
+    private addresses that survived a filter intended to remove them.
+  - `RemoteIPType` was blank across the entire aggregated report stream in testing — do not
+    depend on it for IP classification.
+
+  **Coverage gap by construction:** aggregation exists to compress high-volume telemetry.
+  Combined with the `min_avg_conns` volume floor, this is a fast-beacon hunt — a beacon
+  generating roughly one connection per hour is unlikely to produce an aggregated record at
+  all. Long-sleep, heavily-jittered beacons (the default in most commercial C2 frameworks)
+  are only visible to [[HL-018]].
+
+  **Workstation blindness:** `ActiveRatio` is calculated against the full lookback window.
+  A workstation powered off overnight and at weekends cannot exceed roughly 0.30 over a 7
+  day window, so results skew heavily towards always-on servers. In one tuning run, 25 of 26
+  external results were servers; a separate query showed eleven workstations legitimately
+  contacting the same external service without ever appearing in the hunt. Either lower
+  `min_active_ratio` to around 0.20, or compute the ratio against hours during which the
+  device reported any telemetry at all (more correct, more expensive).
+
+  **Tuning parameters:** `lookback` (7d default — 3d workable, 24h too short for the
+  coefficient of variation to mean anything), `min_active_hours` (12 default — below 8 the
+  statistic becomes meaningless), `min_avg_conns` (20 default — the primary volume gate;
+  below 10 results grow sharply), `max_cv` (0.20 default — only discriminating once external
+  filtering is applied), `max_prevalence` (0.05 default — the single most effective false
+  positive control).
+
+  Allowlist on process plus resolved destination, not destination alone, so a known-good
+  process reaching an unexpected destination still surfaces. Vendors that rotate addresses
+  within a known allocation should be allowlisted by CIDR instead of exact IP — edge
+  addresses for the same service can change within weeks. Record the verification date and
+  attribution source with each entry, and expire entries that haven't been re-verified.
+
+references:
+  - label: "MITRE ATT&CK: Application Layer Protocol (T1071)"
+    url: https://attack.mitre.org/techniques/T1071/
+  - label: "MITRE ATT&CK: Web Protocols (T1071.001)"
+    url: https://attack.mitre.org/techniques/T1071/001/
+  - label: "Microsoft: Aggregated reporting in Microsoft Defender for Endpoint"
+    url: https://learn.microsoft.com/defender-endpoint/aggregated-reporting
+  - label: "Microsoft: DeviceNetworkEvents table reference"
+    url: https://learn.microsoft.com/defender-xdr/advanced-hunting-devicenetworkevents-table
+
+implementations:
+  - platform: Microsoft Sentinel
+    language: KQL
+    query: |
+      // Beaconing by uniform hourly connection volume - MDE aggregated reports
+      // Requires: Aggregated reporting enabled per tenant
+      let lookback = 7d;
+      let bin_size = 1h;
+      let total_bins = toint(lookback / bin_size);
+      let min_active_hours = 12;        // present in at least this many hourly bins
+      let min_active_ratio = 0.25;      // and across at least this share of the window
+      let min_avg_conns = 20;           // roughly one connection every 3 minutes in an active hour
+      let max_cv = 0.20;                // relative std dev of hourly counts, lower is more uniform
+      let max_prevalence = 0.05;        // destination seen on no more than 5% of tenant devices
+      let window_start = bin(ago(lookback), bin_size);
+      let window_end = bin(now(), bin_size);
+      let non_routable = dynamic([
+          "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+          "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24",
+          "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+          "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32"
+      ]);
+      let agg = materialize(
+          DeviceNetworkEvents
+          | where Timestamp >= window_start and Timestamp < window_end
+          | where ActionType == "ConnectionSuccessAggregatedReport"
+          | where isnotempty(RemoteIP)
+          | extend RemoteIPNorm = iff(RemoteIP startswith "::ffff:", substring(RemoteIP, 7), RemoteIP)
+          | where RemoteIPNorm !contains ":"
+          | where ipv4_is_private(RemoteIPNorm) != true
+          | where ipv4_is_in_any_range(RemoteIPNorm, non_routable) != true
+          | extend ConnectionCount = toint(todynamic(AdditionalFields).uniqueEventsAggregated)
+          | where ConnectionCount > 0
+      );
+      let tenant_devices = agg | summarize TenantDeviceCount = dcount(DeviceId) by TenantId;
+      let destination_prevalence = agg | summarize DevicesContacting = dcount(DeviceId) by TenantId, RemoteIPNorm;
+      agg
+      | make-series ConnCounts = sum(ConnectionCount) default = 0
+          on Timestamp from window_start to window_end step bin_size
+          by TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm, RemotePort
+      | mv-apply ConnCount = ConnCounts to typeof(long), TimeBin = Timestamp to typeof(datetime) on (
+            summarize ActiveHours  = countif(ConnCount > 0),
+                      ActiveAvg    = avgif(ConnCount, ConnCount > 0),
+                      ActiveStdev  = stdevif(ConnCount, ConnCount > 0),
+                      TotalConns   = sum(ConnCount),
+                      FirstActive  = minif(TimeBin, ConnCount > 0),
+                      LastActive   = maxif(TimeBin, ConnCount > 0)
+        )
+      | extend ActiveRatio = round(todouble(ActiveHours) / total_bins, 2),
+               CoeffOfVariation = round(iff(ActiveAvg > 0, ActiveStdev / ActiveAvg, 999.0), 3)
+      | where ActiveHours >= min_active_hours
+          and ActiveRatio >= min_active_ratio
+          and ActiveAvg >= min_avg_conns
+          and CoeffOfVariation <= max_cv
+      // roll ports back up so one destination relationship is one row
+      | summarize Ports = make_set(RemotePort, 20),
+                  PortCount = dcount(RemotePort),
+                  BestCoeffOfVariation = min(CoeffOfVariation),
+                  ActiveHours = max(ActiveHours),
+                  ActiveRatio = max(ActiveRatio),
+                  PeakAvgConnsPerHour = toint(max(ActiveAvg)),
+                  TotalConns = sum(TotalConns),
+                  FirstActive = min(FirstActive),
+                  LastActive = max(LastActive)
+          by TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm
+      | lookup kind=leftouter destination_prevalence on TenantId, RemoteIPNorm
+      | lookup kind=leftouter tenant_devices on TenantId
+      | extend DevicePrevalence = round(todouble(DevicesContacting) / TenantDeviceCount, 3)
+      | project TenantId, DeviceId, DeviceName, InitiatingProcessFileName, RemoteIPNorm, Ports, PortCount,
+                FirstActive, LastActive, ActiveHours, ActiveRatio, PeakAvgConnsPerHour,
+                BestCoeffOfVariation, TotalConns, DevicesContacting, DevicePrevalence
+      | where DevicePrevalence <= max_prevalence
+      | sort by BestCoeffOfVariation asc, TotalConns desc
+
+relatedHunts:
+  - HL-018
+  - HL-019
+  - HL-020
+  - HL-021
+  - HL-022
