@@ -67,9 +67,6 @@ dataSources:
   - product: Microsoft Sentinel UEBA
     table: IdentityInfo
     required: true
-  - product: EntraOps Classification (external dataset)
-    table: Classification_EntraIdDirectoryRoles.json
-    required: true
 
 whatYoullSee: |
   The query returns one row per Entra ID directory role that has at least one member and
