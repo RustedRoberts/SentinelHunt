@@ -5,7 +5,7 @@ author: Chris Scott
 summary: A new home for write-ups, hunt walkthroughs, and field notes from building out the SentinelHunt library.
 tags:
   - announcement
-published: true
+published: false
 ---
 
 This is the first post on the SentinelHunt blog.
