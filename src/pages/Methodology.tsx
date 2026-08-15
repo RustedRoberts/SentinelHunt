@@ -29,7 +29,7 @@ function ClassItem({
 }) {
   return (
     <div className="flex gap-4 py-4 border-b border-[#2a2a2a] last:border-0">
-      <div className="shrink-0 pt-0.5">
+      <div className="shrink-0 w-28 pt-0.5">
         <Badge type={type} value={badge} />
       </div>
       <div>
