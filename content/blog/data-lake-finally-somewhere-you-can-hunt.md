@@ -53,7 +53,7 @@ SigninLogs
        AppDisplayName, Day = bin(TimeGenerated, 1d)
 ```
 
-Your analytics rule then compares today's activity against months of baseline, rather than the 14 days a scheduled rule can usually afford to look back over. If you think in terms of rule maturity, this is the jump from an atomic rule ("sign-in from a new country") to a contextual one ("sign-in from a country this user hasn't touched in six months"), or an anomaly-based one ("sign-ins failing 1-2 times a week for 6 months from distributed IPs using the same ASN" ). The datalake now makes the six months accessible to the analytics query.
+Your analytics rule then compares today's activity against months of baseline, rather than the 14 days a scheduled rule can usually afford to look back over. If you think in terms of rule maturity, this is the jump from an atomic rule ("sign-in from a new country") to a contextual one ("sign-in from a country this user hasn't touched in six months"), or an anomaly-based one ("sign-ins failing 1-2 times a week for 6 months from distributed IPs using the same ASN" ). The data lake now makes the six months accessible to the analytics query.
 
 ## The small print
 
@@ -90,7 +90,7 @@ Run the same query from `Data lake exploration` **>>** `KQL queries` in the Defe
 
 If `CommonSecurityLog` is set to lake-only (no Analytics tier at all) with a year of retention, the same 365-day query in Advanced Hunting works fine. The issue only arises for those tables that have *both* an Analytics window *and* a longer lake tail.
 
-So before anyone tells leadership "we can hunt two years back now", check how each table is actually configured. The answer is different per table. The datalake gives you the **capacity**, but it's on your team to create the **capability** when you start to pump data into the datalake.
+So before anyone tells leadership "we can hunt two years back now", check how each table is actually configured. The answer is different per table. The data lake gives you the **capacity**, but it's on your team to create the **capability** when you start to pump data into the data lake.
 
 A few other limits are worth knowing before you build a hunting programme on this:
 
@@ -109,7 +109,7 @@ Then there's cost. Paying per GB scanned is great until someone runs `union *` a
 I think this is a real shift in how hunting can work in Sentinel, but it rewards teams that get the architecture right early and eliminates potential problems later down the line.
 
 - Map out which tables are lake-only, which are mirrored, and what the Analytics retention window is on each, because that decides what Advanced Hunting can see.
-- Rewrite the handful of hunts you run most often for the lake: no functions, no `externaldata()`, or tight time filters - then pick one detection that suffers from a short lookback and try the jobs pattern on it.
+- Rewrite the handful of hunts you run most often for the lake: no functions, no `externaldata()`; then pick one detection that suffers from a short lookback and try the jobs pattern on it.
 
 The hot/cold split was always a cost compromise that hunters quietly were limited under. It's nice to see it start to go away, even if it comes with a few footnotes.
 
