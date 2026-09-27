@@ -59,7 +59,36 @@ Your analytics rule then compares today's activity against months of baseline, r
 
 Here's something that caught my eye too. If a table has both an Analytics retention period and a longer total retention in the lake, Advanced Hunting only searches the Analytics part. Microsoft's own example is SigninLogs with 90 days in Analytics and two years in total. Ask Advanced Hunting for a year of sign-ins and you'll get 90 days back. Say a TI report tells you an IP was spraying your tenant in March. You search from Advanced Hunting, get nothing, and conclude you were never hit, when the March sign-ins are sitting in the lake the whole time and your queries didn't touch it.
 
+### An example to illustrate this better
+
+Your SigninLogs table is configured with:
+
+- Analytics retention: 90 days. This is the fast tier that detections and Advanced Hunting normally use.
+- Total retention: 2 years. Anything older than 90 days now lives only in the lake tier.
+
+Today is 27 September 2026, so the Analytics tier holds roughly 29 June to today. Everything from October 2024 to 28 June 2026 is only in the lake.
+
+### Hitting the issue
+
+A TI report lands saying 203.0.113.10 was used for password spraying in March 2026. You open Advanced Hunting and run:
+
+```kql
+SigninLogs
+| where TimeGenerated > ago(365d)
+| where IPAddress == "203.0.113.10"
+```
+
+You asked for a year, but Advanced Hunting only reaches back to the Analytics window, so it searches from 29 June onwards. The March sign-ins are sitting in the lake, but this query never touches them. You get zero results and report "not seen in the last year" which is a false negative. You do not get informed that the query didn't honour the 365 day lookback either, so it quietly fails.
+
 For anything older than the Analytics window, you need the Data lake exploration KQL page or a search job. Tables stored only in the lake don't have this problem, because Advanced Hunting queries them directly.
+
+### Getting the right answer
+
+Run the same query from `Data lake exploration` **>>** `KQL queries` in the Defender portal, which queries the lake tier directly, or run it as a search job. Either one returns the March hits.
+
+### The contrast
+
+If `CommonSecurityLog` is set to lake-only (no Analytics tier at all) with a year of retention, the same 365-day query in Advanced Hunting works fine. The issue only arises for those tables that have *both* an Analytics window *and* a longer lake tail.
 
 So before anyone tells leadership "we can hunt two years back now", check how each table is actually configured. The answer is different per table. The datalake gives you the **capacity**, but it's on your team to create the **capability** when you start to pump data into the datalake.
 
