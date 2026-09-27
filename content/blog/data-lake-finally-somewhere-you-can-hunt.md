@@ -53,7 +53,7 @@ SigninLogs
        AppDisplayName, Day = bin(TimeGenerated, 1d)
 ```
 
-Your analytics rule then compares today's activity against months of baseline, rather than the 14 days a scheduled rule can usually afford to look back over. If you think in terms of rule maturity, this is the jump from an atomic rule ("sign-in from a new country") to a contextual one ("sign-in from a country this user hasn't touched in six months"), or an anomaly-based one ("sign-ins failing 1-2 times a week for 6 months from distributed IPs using the same ASN" ). The datalake now makes the six months accessible to the analytics query.
+Your analytics rule then compares today's activity against months of baseline, rather than the 14 days a scheduled rule can usually afford to look back over. If you think in terms of rule maturity, this is the jump from an atomic rule ("sign-in from a new country") to a contextual one ("sign-in from a country this user hasn't touched in six months"), or an anomaly-based one ("sign-ins failing 1-2 times a week for 6 months from distributed IPs using the same ASN" ). The data lake now makes the six months accessible to the analytics query.
 
 ## The small print
 
@@ -90,7 +90,7 @@ Run the same query from `Data lake exploration` **>>** `KQL queries` in the Defe
 
 If `CommonSecurityLog` is set to lake-only (no Analytics tier at all) with a year of retention, the same 365-day query in Advanced Hunting works fine. The issue only arises for those tables that have *both* an Analytics window *and* a longer lake tail.
 
-So before anyone tells leadership "we can hunt two years back now", check how each table is actually configured. The answer is different per table. The datalake gives you the **capacity**, but it's on your team to create the **capability** when you start to pump data into the datalake.
+So before anyone tells leadership "we can hunt two years back now", check how each table is actually configured. The answer is different per table. The data lake gives you the **capacity**, but it's on your team to create the **capability** when you start to pump data into the data lake.
 
 A few other limits are worth knowing before you build a hunting programme on this:
 
