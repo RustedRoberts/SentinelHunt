@@ -109,7 +109,7 @@ Then there's cost. Paying per GB scanned is great until someone runs `union *` a
 I think this is a real shift in how hunting can work in Sentinel, but it rewards teams that get the architecture right early and eliminates potential problems later down the line.
 
 - Map out which tables are lake-only, which are mirrored, and what the Analytics retention window is on each, because that decides what Advanced Hunting can see.
-- Rewrite the handful of hunts you run most often for the lake: no functions, no `externaldata()`, or tight time filters - then pick one detection that suffers from a short lookback and try the jobs pattern on it.
+- Rewrite the handful of hunts you run most often for the lake: no functions, no `externaldata()`; then pick one detection that suffers from a short lookback and try the jobs pattern on it.
 
 The hot/cold split was always a cost compromise that hunters quietly were limited under. It's nice to see it start to go away, even if it comes with a few footnotes.
 
