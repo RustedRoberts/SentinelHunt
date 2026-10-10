@@ -37,7 +37,7 @@ import { instrument } from "@microlabs/otel-cf-workers";
 const AXIOM_EU_TRACES_URL = "https://eu-central-1.aws.edge.axiom.co/v1/traces";
 
 const ALLOWED_ORIGIN = "https://rustedroberts.github.io"; // update if your site differs
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-5-5";
 const MAX_TOKENS = 500;
 const MAX_HISTORY_MESSAGES = 10; // keep the last N turns, drop anything older
 const RATE_LIMIT_PER_HOUR = 20;  // requests per visitor IP
