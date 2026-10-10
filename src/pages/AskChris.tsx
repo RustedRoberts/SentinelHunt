@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import Layout from '../components/Layout'
 
 const WORKER_URL = 'https://cv-chatbot.chrisscott.workers.dev'
@@ -85,9 +87,19 @@ export default function AskChris() {
                       : 'text-zinc-100'
                 }
               >
-                {m.kind === 'user' && <span className="text-zinc-600">{'> '}</span>}
-                {m.kind === 'assistant' && <span className="text-[#d4ff3f] mr-1">{'#'}</span>}
-                <span className="whitespace-pre-wrap break-words">{m.text}</span>
+                {m.kind === 'assistant' ? (
+                  <div className="flex gap-2">
+                    <span className="text-[#d4ff3f] shrink-0">{'#'}</span>
+                    <div className="prose prose-hunt prose-sm max-w-none min-w-0 break-words prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-headings:mt-3 prose-headings:mb-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {m.kind === 'user' && <span className="text-zinc-600">{'> '}</span>}
+                    <span className="whitespace-pre-wrap break-words">{m.text}</span>
+                  </>
+                )}
               </div>
             ))}
             {loading && (
