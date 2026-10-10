@@ -9,7 +9,7 @@ tags:
   - detection-engineering
   - advanced-hunting
   - rmm-abuse
-published: true
+published: false
 ---
 
 The most useful thing I did with Microsoft's latest threat intelligence posts wasn't reading them. It was pasting their KQL straight into advanced hunting and seeing what came back in my own tenant. Two posts landed in the last days of September, one on phishing that abuses remote monitoring and management (RMM) tools, one on a Zimbra mail server flaw, and both came with hunting queries attached. That is exactly the sort of new content worth tracking, so I went through them properly.
