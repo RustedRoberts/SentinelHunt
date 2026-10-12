@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIP Calculator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6573;
+    --border: #e2e6eb; --track: #e2e6eb;
+    --invested: #4b6bfb; --returns: #1aa179; --accent: #4b6bfb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151a; --card: #1b1f26; --text: #e8ebef; --muted: #9aa4b2;
+      --border: #2b313b; --track: #2b313b;
+      --invested: #7b93ff; --returns: #3cc99a; --accent: #7b93ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .field { margin-bottom: 26px; }
+  .field:last-child { margin-bottom: 0; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+  label { font-weight: 600; }
+  .box { display: flex; align-items: center; gap: 4px; border: 1px solid var(--border);
+         border-radius: 8px; padding: 4px 8px; background: var(--bg); }
+  .box input { width: 96px; border: 0; background: transparent; color: var(--text);
+               font: inherit; font-weight: 600; text-align: right; outline: none; }
+  .box span { color: var(--muted); font-size: 0.9rem; }
+  input[type=range] { width: 100%; -webkit-appearance: none; appearance: none; height: 6px;
+    border-radius: 3px; background: var(--track); outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px;
+    border-radius: 50%; background: var(--accent); border: 3px solid var(--card);
+    box-shadow: 0 0 0 1px var(--accent); }
+  input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 3px solid var(--card); }
+  input[type=range]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .limits { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+  select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+           border-radius: 8px; padding: 4px 8px; }
+  .stat { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .stat:last-of-type { border-bottom: 0; }
+  .stat .k { color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .stat .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat.total .v { font-size: 1.35rem; }
+  .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 6px 0 16px; background: var(--track); }
+  .bar div { transition: width .2s; }
+  .gain { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.92rem; }
+  th, td { padding: 8px 6px; text-align: right; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .table-wrap { max-height: 360px; overflow: auto; margin-top: 8px; }
+  h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  .note { color: var(--muted); font-size: 0.82rem; margin-top: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SIP Calculator</h1>
+  <p class="sub">Estimate the future value of a regular monthly investment.</p>
+
+  <div class="grid">
+    <section class="card" aria-label="Inputs">
+      <div class="field">
+        <div class="row">
+          <label for="currency">Currency</label>
+          <select id="currency">
+            <option value="GBP|en-GB">£ GBP</option>
+            <option value="INR|en-IN">₹ INR</option>
+            <option value="USD|en-US">$ USD</option>
+            <option value="EUR|en-IE">€ EUR</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="row">
+          <label for="amount">Monthly investment</label>
+          <div class="box"><span id="sym">£</span><input id="amountN" inputmode="numeric" aria-label="Monthly investment value"></div>
+        </div>
+        <input type="range" id="amount" min="25" max="10000" step="25" value="500">
+        <div class="limits"><span id="amtMin"></span><span id="amtMax"></span></div>
+      </div>
+
+      <div class="field">
+        <div class="row">
+          <label for="rate">Expected annual return</label>
+          <div class="box"><input id="rateN" inputmode="decimal" aria-label="Expected annual return value"><span>%</span></div>
+        </div>
+        <input type="range" id="rate" min="1" max="30" step="0.5" value="8">
+        <div class="limits"><span>1%</span><span>30%</span></div>
+      </div>
+
+      <div class="field">
+        <div class="row">
+          <label for="years">Time period</label>
+          <div class="box"><input id="yearsN" inputmode="numeric" aria-label="Time period value"><span>years</span></div>
+        </div>
+        <input type="range" id="years" min="1" max="40" step="1" value="15">
+        <div class="limits"><span>1 yr</span><span>40 yrs</span></div>
+      </div>
+
+      <div class="field">
+        <div class="row">
+          <label for="stepup">Annual step-up</label>
+          <div class="box"><input id="stepupN" inputmode="decimal" aria-label="Annual step-up value"><span>%</span></div>
+        </div>
+        <input type="range" id="stepup" min="0" max="25" step="1" value="0">
+        <div class="limits"><span>0% (flat)</span><span>25%</span></div>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Results" aria-live="polite">
+      <h2>Projection</h2>
+      <div class="bar" role="img" id="bar">
+        <div id="barInv" style="background:var(--invested)"></div>
+        <div id="barRet" style="background:var(--returns)"></div>
+      </div>
+      <div class="stat"><span class="k"><i class="dot" style="background:var(--invested)"></i>Total invested</span><span class="v" id="invested"></span></div>
+      <div class="stat"><span class="k"><i class="dot" style="background:var(--returns)"></i>Estimated returns</span><span class="v" id="returns"></span></div>
+      <div class="stat total"><span class="k">Projected value</span><span class="v" id="total"></span></div>
+      <p class="gain" id="gain"></p>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:20px" aria-label="Year by year breakdown">
+    <h2>Year-by-year breakdown</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Year</th><th>Monthly</th><th>Invested to date</th><th>Returns to date</th><th>Value</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <p class="note">Assumes contributions at the start of each month and returns compounded monthly at the annual rate ÷ 12.
+      Projections are illustrative only, ignore fees, tax and inflation, and are not financial advice. Investments can fall as well as rise.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const inputs = ['amount', 'rate', 'years', 'stepup'];
+  let cur = 'GBP', locale = 'en-GB';
+
+  const money = v => new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(v);
+
+  function calc(P, annualRate, years, stepUp) {
+    const r = annualRate / 100 / 12;
+    let value = 0, invested = 0, monthly = P;
+    const rows = [];
+    for (let y = 1; y <= years; y++) {
+      for (let m = 0; m < 12; m++) {
+        value = (value + monthly) * (1 + r);
+        invested += monthly;
+      }
+      rows.push({ y, monthly, invested, value });
+      monthly *= 1 + stepUp / 100;
+    }
+    return { invested, value, rows };
+  }
+
+  function render() {
+    const P = +$('amount').value, rate = +$('rate').value, years = +$('years').value, step = +$('stepup').value;
+    const { invested, value, rows } = calc(P, rate, years, step);
+    const gains = value - invested;
+
+    $('invested').textContent = money(invested);
+    $('returns').textContent = money(gains);
+    $('total').textContent = money(value);
+    const invPct = value > 0 ? invested / value * 100 : 100;
+    $('barInv').style.width = invPct + '%';
+    $('barRet').style.width = (100 - invPct) + '%';
+    $('bar').setAttribute('aria-label', `Invested ${invPct.toFixed(0)}%, returns ${(100 - invPct).toFixed(0)}% of projected value`);
+    $('gain').textContent = `Returns make up ${(100 - invPct).toFixed(1)}% of the final value — ${(value / invested).toFixed(2)}× what you put in.`;
+
+    $('tbody').innerHTML = rows.map(r =>
+      `<tr><td>${r.y}</td><td>${money(r.monthly)}</td><td>${money(r.invested)}</td><td>${money(r.value - r.invested)}</td><td>${money(r.value)}</td></tr>`
+    ).join('');
+
+    inputs.forEach(id => { if (document.activeElement !== $(id + 'N')) $(id + 'N').value = $(id).value; });
+    paintTracks();
+  }
+
+  function paintTracks() {
+    inputs.forEach(id => {
+      const el = $(id), pct = (el.value - el.min) / (el.max - el.min) * 100;
+      el.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--track) ${pct}%)`;
+    });
+  }
+
+  function setLimits() {
+    const short = v => new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0, notation: 'compact' }).format(v);
+    $('amtMin').textContent = short($('amount').min);
+    $('amtMax').textContent = short($('amount').max);
+    $('sym').textContent = (0).toLocaleString(locale, { style: 'currency', currency: cur }).replace(/[\d.,\s]/g, '');
+  }
+
+  inputs.forEach(id => {
+    const slider = $(id), box = $(id + 'N');
+    slider.addEventListener('input', render);
+    // Typed values update the slider live; clamp to the slider's range when the box loses focus.
+    box.addEventListener('input', () => {
+      const v = parseFloat(box.value.replace(/,/g, ''));
+      if (!isNaN(v)) { slider.value = v; render(); }
+    });
+    box.addEventListener('change', () => { box.value = slider.value; render(); });
+    box.addEventListener('keydown', e => { if (e.key === 'Enter') box.blur(); });
+  });
+
+  $('currency').addEventListener('change', e => {
+    [cur, locale] = e.target.value.split('|');
+    setLimits(); render();
+  });
+
+  setLimits();
+  render();
+})();
+</script>
+</body>
+</html>
