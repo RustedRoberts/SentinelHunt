@@ -5,7 +5,7 @@
 //   - KV namespace: RATE_LIMIT         (per-IP and daily usage counters)
 //
 // Request contract:
-//   POST { "host": "orders.nuclera.com" }
+//   POST { "host": "www.contoso.com" }
 //   -> 200 { "screenshot": "<url>", "title": "...", "statusCode": 200 }
 //   -> 4xx/5xx { "error": "..." }
 //

@@ -34,15 +34,15 @@ beforeEach(() => {
   firecrawlCalls = []
   stubFirecrawl({
     success: true,
-    data: { screenshot: 'https://img.example/shot.png', metadata: { title: 'DNA Ordering', statusCode: 200 } },
+    data: { screenshot: 'https://img.example/shot.png', metadata: { title: 'Contoso Home', statusCode: 200 } },
   })
 })
 
 test('returns screenshot, title and status for a valid host', async () => {
-  const res = await worker.fetch(post({ host: 'Orders.Nuclera.com' }), env)
+  const res = await worker.fetch(post({ host: 'WWW.Contoso.com' }), env)
   assert.equal(res.status, 200)
-  assert.deepEqual(await res.json(), { screenshot: 'https://img.example/shot.png', title: 'DNA Ordering', statusCode: 200 })
-  assert.equal(firecrawlCalls[0].body.url, 'https://orders.nuclera.com/')
+  assert.deepEqual(await res.json(), { screenshot: 'https://img.example/shot.png', title: 'Contoso Home', statusCode: 200 })
+  assert.equal(firecrawlCalls[0].body.url, 'https://www.contoso.com/')
   assert.deepEqual(firecrawlCalls[0].body.formats, ['screenshot'])
   assert.equal(firecrawlCalls[0].auth, 'Bearer fc-test')
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'https://rustedroberts.github.io')

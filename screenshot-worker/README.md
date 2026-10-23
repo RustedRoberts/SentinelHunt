@@ -12,7 +12,7 @@ Expected URL once deployed: `https://sentinelhunt-screenshot.chrisscott.workers.
 ## Request contract
 
 ```
-POST /  { "host": "orders.nuclera.com" }
+POST /  { "host": "www.contoso.com" }
   -> 200 { "screenshot": "<image url>", "title": "...", "statusCode": 200 }
   -> 4xx/5xx { "error": "..." }
 ```

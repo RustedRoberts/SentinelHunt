@@ -46,7 +46,7 @@ interface DohResponse {
   Answer?: DohAnswer[]
 }
 
-// Accepts "nuclera.com", "https://www.nuclera.com/path" etc. and returns the
+// Accepts "contoso.com", "https://www.contoso.com/path" etc. and returns the
 // bare lower-case domain, or null if it doesn't look like a hostname.
 export function normaliseDomain(input: string): string | null {
   const host = input
