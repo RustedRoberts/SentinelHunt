@@ -5,14 +5,14 @@
 // web server actually answers. No dependencies beyond Node 18+.
 //
 // Usage:
-//   node scripts/subdomain-recon.js nuclera.com
-//   node scripts/subdomain-recon.js nuclera.com --csv out.csv --html out.html
-//   node scripts/subdomain-recon.js nuclera.com --no-live
-//   node scripts/subdomain-recon.js nuclera.com --doh
+//   node scripts/subdomain-recon.js contoso.com
+//   node scripts/subdomain-recon.js contoso.com --csv out.csv --html out.html
+//   node scripts/subdomain-recon.js contoso.com --no-live
+//   node scripts/subdomain-recon.js contoso.com --doh
 //
 // Screenshots: --urls writes the hosts that answered the web check as a URL
 // list for gowitness (https://github.com/sensepost/gowitness, v3):
-//   node scripts/subdomain-recon.js nuclera.com --urls urls.txt
+//   node scripts/subdomain-recon.js contoso.com --urls urls.txt
 //   gowitness scan file -f urls.txt --write-db
 //   gowitness report server
 
@@ -260,7 +260,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2))
   const domain = normaliseDomain(opts.domain)
   if (!domain) {
-    console.error(`"${opts.domain}" doesn't look like a valid domain, e.g. nuclera.com`)
+    console.error(`"${opts.domain}" doesn't look like a valid domain, e.g. contoso.com`)
     process.exit(1)
   }
 

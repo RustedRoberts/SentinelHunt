@@ -3,8 +3,10 @@ main = "worker.js"
 account_id = "180fefbbd2e4bfc1667c13edd11e76ca"
 compatibility_date = "2026-07-25"
 
-# Create this with: npx wrangler kv namespace create RATE_LIMIT
-# then paste the id it gives you below.
+# Created with: npx wrangler kv namespace create SCREENSHOT_RATE_LIMIT
+# (not RATE_LIMIT - that title is already taken by the chatbot Worker's
+# namespace, and KV titles are unique per account). The binding below is
+# still RATE_LIMIT, which is the name worker.js uses.
 kv_namespaces = [
   { binding = "RATE_LIMIT", id = "47ea35a4d0964bbcbdcc3340971ae9b2" }
 ]
