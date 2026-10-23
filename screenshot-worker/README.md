@@ -43,15 +43,15 @@ cap slightly.
 
 | Name | Type | Purpose |
 |---|---|---|
-| `RATE_LIMIT` | KV namespace | Per-IP and daily counters |
+| `RATE_LIMIT` | KV namespace (titled `SCREENSHOT_RATE_LIMIT`) | Per-IP and daily counters |
 | `FIRECRAWL_API_KEY` | Secret | Firecrawl API auth |
 
 ## First-time setup
 
 ```powershell
 cd screenshot-worker
-npx wrangler kv namespace create RATE_LIMIT
-# paste the id it prints into wrangler.toml, replacing REPLACE_WITH_KV_NAMESPACE_ID
+npx wrangler kv namespace create SCREENSHOT_RATE_LIMIT
+# paste the id it prints into wrangler.toml as the RATE_LIMIT binding's id
 npx wrangler secret put FIRECRAWL_API_KEY
 npx wrangler deploy --dry-run
 npx wrangler deploy
