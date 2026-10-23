@@ -1,0 +1,19 @@
+name = "sentinelhunt-screenshot"
+main = "worker.js"
+compatibility_date = "2026-07-25"
+
+# Create this with: npx wrangler kv namespace create RATE_LIMIT
+# then paste the id it gives you below.
+kv_namespaces = [
+  { binding = "RATE_LIMIT", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
+]
+
+# FIRECRAWL_API_KEY is NOT set here - it goes in as a secret instead, via:
+#   npx wrangler secret put FIRECRAWL_API_KEY
+# so it never ends up committed to source control.
+
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = true

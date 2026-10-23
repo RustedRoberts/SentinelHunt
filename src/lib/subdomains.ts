@@ -1,9 +1,13 @@
 // Subdomain discovery for the Recon page: pulls names from certificate
 // transparency logs (crt.sh), then resolves each one over DNS-over-HTTPS.
-// Both services send `Access-Control-Allow-Origin: *`, so this runs entirely
-// in the visitor's browser with no back end.
+// Both services send `Access-Control-Allow-Origin: *`, so lookups run
+// entirely in the visitor's browser. Screenshots are the exception: they go
+// through the screenshot-worker Cloudflare Worker, which holds the Firecrawl
+// API key.
 
 const CRTSH_URL = 'https://crt.sh/'
+// Firecrawl screenshot proxy - see screenshot-worker/README.md.
+const SCREENSHOT_WORKER_URL = 'https://sentinelhunt-screenshot.chrisscott.workers.dev'
 const DOH_URL = 'https://cloudflare-dns.com/dns-query'
 const DNS_CONCURRENCY = 10
 
@@ -19,6 +23,12 @@ export interface SubdomainResult {
   aRecords: string[]
   status: ResolutionStatus
   error?: string
+}
+
+export interface Screenshot {
+  screenshot: string
+  title: string
+  statusCode: number | null
 }
 
 interface CrtShEntry {
@@ -115,6 +125,19 @@ export async function resolveAll(
     }
   }
   await Promise.all(Array.from({ length: Math.min(DNS_CONCURRENCY, names.length) }, worker))
+}
+
+export async function requestScreenshot(host: string): Promise<Screenshot> {
+  const res = await fetch(SCREENSHOT_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host }),
+  })
+  const body = await res.json().catch(() => null)
+  if (!res.ok || !body?.screenshot) {
+    throw new Error(body?.error ?? `Screenshot service returned HTTP ${res.status}`)
+  }
+  return body as Screenshot
 }
 
 function csvCell(value: string): string {
