@@ -78,7 +78,7 @@ export default function Subdomains() {
     const target = normaliseDomain(input)
     if (!target) {
       setPhase('error')
-      setError('That doesn’t look like a valid domain, e.g. nuclera.com')
+      setError('That doesn’t look like a valid domain, e.g. contoso.com')
       return
     }
     abortRef.current?.abort()
@@ -146,7 +146,7 @@ export default function Subdomains() {
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="nuclera.com"
+            placeholder="contoso.com"
             spellCheck={false}
             autoCapitalize="off"
             className="flex-1 min-w-[16rem] bg-[#1a1a1a] border border-[#2a2a2a] rounded px-4 py-2 font-mono text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-[#d4ff3f]"
