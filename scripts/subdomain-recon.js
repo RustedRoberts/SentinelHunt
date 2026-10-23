@@ -9,6 +9,12 @@
 //   node scripts/subdomain-recon.js nuclera.com --csv out.csv --html out.html
 //   node scripts/subdomain-recon.js nuclera.com --no-live
 //   node scripts/subdomain-recon.js nuclera.com --doh
+//
+// Screenshots: --urls writes the hosts that answered the web check as a URL
+// list for gowitness (https://github.com/sensepost/gowitness, v3):
+//   node scripts/subdomain-recon.js nuclera.com --urls urls.txt
+//   gowitness scan file -f urls.txt --write-db
+//   gowitness report server
 
 import { promises as dns } from 'dns'
 import { writeFileSync } from 'fs'
@@ -20,10 +26,12 @@ const CRTSH_TIMEOUT_MS = 90000
 const MAX_CNAME_HOPS = 10
 
 function usage(code) {
-  console.log(`Usage: node scripts/subdomain-recon.js <domain> [--csv <file>] [--html <file>] [--no-live] [--doh]
+  console.log(`Usage: node scripts/subdomain-recon.js <domain> [--csv <file>] [--html <file>] [--urls <file>] [--no-live] [--doh]
 
   --csv <file>    write results to a CSV file
   --html <file>   write results to a standalone HTML report
+  --urls <file>   write the URLs that answered the web check, one per line,
+                  ready for: gowitness scan file -f <file>
   --no-live       skip the HTTPS/HTTP web check
   --doh           resolve via Cloudflare DNS-over-HTTPS instead of the system
                   resolver (use where local DNS is filtered or intercepted)`)
@@ -31,10 +39,10 @@ function usage(code) {
 }
 
 function parseArgs(argv) {
-  const opts = { domain: null, csv: null, html: null, live: true, doh: false }
+  const opts = { domain: null, csv: null, html: null, urls: null, live: true, doh: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--csv' || arg === '--html') {
+    if (arg === '--csv' || arg === '--html' || arg === '--urls') {
       if (!argv[i + 1]) usage(1)
       opts[arg.slice(2)] = argv[++i]
     } else if (arg === '--no-live') opts.live = false
@@ -44,6 +52,10 @@ function parseArgs(argv) {
     else usage(1)
   }
   if (!opts.domain) usage(1)
+  if (opts.urls && !opts.live) {
+    console.error('--urls needs the web check, so it cannot be combined with --no-live')
+    process.exit(1)
+  }
   return opts
 }
 
@@ -286,6 +298,13 @@ async function main() {
   if (opts.html) {
     writeFileSync(opts.html, toHtmlReport(domain, results, opts.live))
     console.error(`HTML report written to ${opts.html}`)
+  }
+  if (opts.urls) {
+    // The URL that answered (HTTPS, or HTTP if HTTPS failed), not where it
+    // redirected to: gowitness follows redirects itself.
+    const urls = results.filter(r => r.live?.status).map(r => r.live.url)
+    writeFileSync(opts.urls, urls.join('\n') + (urls.length ? '\n' : ''))
+    console.error(`${urls.length} URLs written to ${opts.urls} - next: gowitness scan file -f ${opts.urls} --write-db`)
   }
 }
 
