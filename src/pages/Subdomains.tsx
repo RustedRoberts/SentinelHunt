@@ -128,8 +128,8 @@ export default function Subdomains() {
   const visible = resolvedOnly ? results.filter(r => r.status === 'resolved') : results
 
   return (
-    <Layout>
-      <div className="max-w-5xl">
+    <Layout className="!max-w-[96rem]">
+      <div>
         <div className="mb-10">
           <h1 className="font-display text-4xl font-bold text-zinc-100 mb-3">Subdomain Recon</h1>
           <p className="text-zinc-400 text-lg leading-relaxed">
