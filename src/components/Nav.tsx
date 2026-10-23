@@ -6,6 +6,7 @@ const links = [
   { to: '/coverage', label: 'Coverage' },
   { to: '/methodology', label: 'Methodology' },
   { to: '/blog', label: 'Blog' },
+  { to: '/recon', label: 'Recon' },
   { to: '/ask', label: 'Ask Chris' },
 ]
 
